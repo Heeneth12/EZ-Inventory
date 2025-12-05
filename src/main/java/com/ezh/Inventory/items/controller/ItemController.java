@@ -17,7 +17,6 @@ import java.util.List;
 
 @Slf4j
 @RestController
-@CrossOrigin(origins = "*")
 @RequestMapping("/v1/items")
 @RequiredArgsConstructor
 public class ItemController {

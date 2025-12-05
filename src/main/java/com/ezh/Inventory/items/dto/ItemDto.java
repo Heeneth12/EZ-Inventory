@@ -14,6 +14,7 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 public class ItemDto {
     private Long id;
+    private Long tenantId;
     private String name;
     private String itemCode;
     private String sku; // Stock Keeping Unit

@@ -18,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+import static com.ezh.Inventory.utils.UserContextUtil.getTenantIdOrThrow;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -29,9 +31,11 @@ public class ItemServiceImpl implements ItemService {
     @Transactional
     public CommonResponse createItem(ItemDto itemDto) throws CommonException {
         log.info("Creating new item: {}", itemDto);
+
         if (itemRepository.existsByItemCode(itemDto.getItemCode())) {
             throw new CommonException("Item Code already exists", HttpStatus.BAD_REQUEST);
         }
+
         Item item = convertToEntity(itemDto);
         itemRepository.save(item);
         return CommonResponse.builder()
@@ -46,7 +50,7 @@ public class ItemServiceImpl implements ItemService {
     public CommonResponse updateItem(Long id, ItemDto dto) throws CommonException {
         log.info("Updating item id: {}", id);
 
-        Item item = itemRepository.findById(id)
+        Item item = itemRepository.findByIdAndTenantId(id, getTenantIdOrThrow())
                 .orElseThrow(() -> new CommonException("Item not found", HttpStatus.NOT_FOUND));
 
         mapDtoToEntity(dto, item);
@@ -64,7 +68,7 @@ public class ItemServiceImpl implements ItemService {
     public ItemDto getItemById(Long id) throws CommonException{
         log.info("Fetching item by id: {}", id);
 
-        Item item = itemRepository.findById(id)
+        Item item = itemRepository.findByIdAndTenantId(id, getTenantIdOrThrow())
                 .orElseThrow(() -> new CommonException("Item not found", HttpStatus.NOT_FOUND));
 
         return convertToDto(item);
@@ -76,13 +80,14 @@ public class ItemServiceImpl implements ItemService {
         log.info("Fetching all items");
         Pageable pageable = PageRequest.of(page, size);
 
-        Page<Item> itemsPage = itemRepository.searchItems(
-                itemFilterDto.getSearchQuery(),
-                itemFilterDto.getActive(),
-                itemFilterDto.getItemType(),
-                itemFilterDto.getBrand(),
-                itemFilterDto.getCategory(),
-                pageable);
+//        Page<Item> itemsPage = itemRepository.searchItems(
+//                itemFilterDto.getSearchQuery(),
+//                itemFilterDto.getActive(),
+//                itemFilterDto.getItemType(),
+//                itemFilterDto.getBrand(),
+//                itemFilterDto.getCategory(),
+//                pageable);
+        Page<Item> itemsPage = itemRepository.findAllByTenantId(getTenantIdOrThrow(), pageable);
 
         return itemsPage.map(this::convertToDto);
     }
@@ -92,7 +97,7 @@ public class ItemServiceImpl implements ItemService {
     public CommonResponse toggleItemActiveStatus(Long itemId, Boolean active) throws CommonException{
         log.info("Updating active status for item {} → {}", itemId, active);
 
-        Item item = itemRepository.findById(itemId)
+        Item item = itemRepository.findByIdAndTenantId(itemId, getTenantIdOrThrow())
                 .orElseThrow(() -> new CommonException("Item not found", HttpStatus.NOT_FOUND));
 
         // Already same — no update required
@@ -131,6 +136,7 @@ public class ItemServiceImpl implements ItemService {
     private Item convertToEntity(ItemDto dto) {
         return Item.builder()
                 .name(dto.getName())
+                .tenantId(getTenantIdOrThrow())
                 .itemCode(dto.getItemCode())
                 .sku(dto.getSku())
                 .barcode(dto.getBarcode())

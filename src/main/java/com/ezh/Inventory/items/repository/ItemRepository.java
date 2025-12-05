@@ -9,10 +9,14 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface ItemRepository extends JpaRepository<Item, Long> {
 
     boolean existsByItemCode(String itemCode);
+
+    Optional<Item> findByIdAndTenantId(Long id, Long tenantId);
+    Page<Item> findAllByTenantId(Long tenantId, Pageable pageable);
 
     List<Item> findAllByIsActiveTrue();
 
@@ -33,23 +37,24 @@ public interface ItemRepository extends JpaRepository<Item, Long> {
             """)
     List<Item> smartSearch(@Param("query") String query);
 
-    @Query("""
-                SELECT i FROM Item i 
-                WHERE 
-                    (:searchQuery IS NULL 
-                        OR LOWER(i.name) LIKE LOWER(CONCAT('%', :searchQuery, '%'))
-                        OR LOWER(i.itemCode) LIKE LOWER(CONCAT('%', :searchQuery, '%'))
-                        OR LOWER(i.barcode) LIKE LOWER(CONCAT('%', :searchQuery, '%'))
-                    )
-                    AND (:active IS NULL OR i.isActive = :active)
-                    AND (:itemType IS NULL OR i.itemType = :itemType)
-                    AND (:brand IS NULL OR LOWER(i.brand) LIKE LOWER(CONCAT('%', :brand, '%')))
-                    AND (:category IS NULL OR LOWER(i.category) LIKE LOWER(CONCAT('%', :category, '%')))
-            """)
-    Page<Item> searchItems(String searchQuery,
-                           Boolean active,
-                           ItemType itemType,
-                           String brand,
-                           String category,
-                           Pageable pageable);
+    @Query(
+            "SELECT i FROM Item i " +
+                    "WHERE " +
+                    "(:searchQuery IS NULL OR LOWER(i.name) LIKE LOWER(CONCAT('%', :searchQuery, '%')) " +
+                    " OR LOWER(i.itemCode) LIKE LOWER(CONCAT('%', :searchQuery, '%')) " +
+                    " OR LOWER(i.barcode) LIKE LOWER(CONCAT('%', :searchQuery, '%'))) " +
+                    "AND (:active IS NULL OR i.isActive = :active) " +
+                    "AND (:itemType IS NULL OR i.itemType = :itemType) " +
+                    "AND (:brand IS NULL OR LOWER(i.brand) LIKE LOWER(CONCAT('%', :brand, '%'))) " +
+                    "AND (:category IS NULL OR LOWER(i.category) LIKE LOWER(CONCAT('%', :category, '%')))"
+    )
+    Page<Item> searchItems(
+            @Param("searchQuery") String searchQuery,
+            @Param("active") Boolean active,
+            @Param("itemType") ItemType itemType,
+            @Param("brand") String brand,
+            @Param("category") String category,
+            Pageable pageable
+    );
+
 }
