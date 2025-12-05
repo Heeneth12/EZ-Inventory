@@ -15,8 +15,9 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 public class Contact extends CommonSerializable{
-
     private String contactCode;
+    @Column(name = "tenant_id", nullable = false)
+    private Long tenantId;
     private String name;
     private String email;
     private String phone;

@@ -14,6 +14,7 @@ import java.util.List;
 @Builder
 public class ContactDto {
     private Long id;
+    private Long tenantId;
     private String contactCode;
     private String name;
     private String email;

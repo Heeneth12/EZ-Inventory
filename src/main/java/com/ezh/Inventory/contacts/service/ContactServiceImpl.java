@@ -21,6 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+import static com.ezh.Inventory.utils.UserContextUtil.getTenantIdOrThrow;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -49,7 +51,7 @@ public class ContactServiceImpl implements ContactService {
     @Override
     @Transactional
     public CommonResponse updateContact(Long id, ContactDto contactDto) throws CommonException {
-        Contact existing = repository.findById(id)
+        Contact existing = repository.findByIdAndTenantId(id, getTenantIdOrThrow())
                 .orElseThrow(() -> new BadRequestException("Contact not found"));
 
         existing.setContactCode(contactDto.getContactCode());
@@ -73,7 +75,7 @@ public class ContactServiceImpl implements ContactService {
     @Override
     @Transactional(readOnly = true)
     public ContactDto getContact(Long id) throws CommonException {
-        Contact contact = repository.findById(id)
+        Contact contact = repository.findByIdAndTenantId(id, getTenantIdOrThrow())
                 .orElseThrow(() -> new BadRequestException("Contact not found"));
 
         return convertToDTO(contact);
@@ -94,6 +96,7 @@ public class ContactServiceImpl implements ContactService {
                 contactFilter.getActive(),
                 pageable
         );
+        //Page<Contact> contacts = repository.findAll(pageable);
         return contacts.map(this::convertToDTO);
     }
 
@@ -102,7 +105,7 @@ public class ContactServiceImpl implements ContactService {
     @Override
     @Transactional
     public CommonResponse toggleStatus(Long id, Boolean active) throws CommonException {
-        Contact contact = repository.findById(id)
+        Contact contact = repository.findByIdAndTenantId(id, getTenantIdOrThrow())
                 .orElseThrow(() -> new BadRequestException("Contact not found"));
 
         contact.setActive(active);
@@ -120,6 +123,7 @@ public class ContactServiceImpl implements ContactService {
     private Contact convertToEntity(ContactDto dto) {
 
         Contact contact = Contact.builder()
+                .tenantId(getTenantIdOrThrow())
                 .contactCode(dto.getContactCode())
                 .name(dto.getName())
                 .email(dto.getEmail())
@@ -152,6 +156,7 @@ public class ContactServiceImpl implements ContactService {
 
         ContactDto.ContactDtoBuilder builder = ContactDto.builder()
                 .id(contact.getId())
+                .tenantId(contact.getTenantId())
                 .contactCode(contact.getContactCode())
                 .name(contact.getName())
                 .email(contact.getEmail())

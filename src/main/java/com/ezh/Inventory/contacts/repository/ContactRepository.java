@@ -8,26 +8,32 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Optional;
+
 public interface ContactRepository extends JpaRepository<Contact, Long> {
 
     Boolean existsByContactCode(String contactCode);
 
-    @Query("""
+    Optional<Contact> findByIdAndTenantId(Long id, Long tenantId);
+
+
+    @Query(value = """
                 SELECT c FROM Contact c
-                WHERE (
-                        :search IS NULL OR
+                WHERE 
+                    (
                         LOWER(c.name) LIKE LOWER(CONCAT('%', :search, '%')) OR
                         LOWER(c.email) LIKE LOWER(CONCAT('%', :search, '%')) OR
-                        LOWER(c.phone) LIKE LOWER(CONCAT('%', :search, '%')) OR
-                        LOWER(c.gstNumber) LIKE LOWER(CONCAT('%', :search, '%')) OR
+                        c.phone LIKE CONCAT('%', :search, '%') OR
+                        c.gstNumber LIKE CONCAT('%', :search, '%') OR
                         LOWER(c.contactCode) LIKE LOWER(CONCAT('%', :search, '%'))
+                        OR :search IS NULL
                     )
-                  AND (:name IS NULL OR LOWER(c.name) LIKE LOWER(CONCAT('%', :name, '%')))
-                  AND (:email IS NULL OR LOWER(c.email) LIKE LOWER(CONCAT('%', :email, '%')))
-                  AND (:phone IS NULL OR LOWER(c.phone) LIKE LOWER(CONCAT('%', :phone, '%')))
-                  AND (:gst IS NULL OR LOWER(c.gstNumber) LIKE LOWER(CONCAT('%', :gst, '%')))
-                  AND (:type IS NULL OR c.type = :type)
-                  AND (:active IS NULL OR c.active = :active)
+                    AND (LOWER(c.name) LIKE LOWER(CONCAT('%', :name, '%')) OR :name IS NULL)
+                    AND (LOWER(c.email) LIKE LOWER(CONCAT('%', :email, '%')) OR :email IS NULL)
+                    AND (c.phone LIKE CONCAT('%', :phone, '%') OR :phone IS NULL)
+                    AND (c.gstNumber LIKE CONCAT('%', :gst, '%') OR :gst IS NULL)
+                    AND (c.type = :type OR :type IS NULL)
+                    AND (c.active = :active OR :active IS NULL)
             """)
     Page<Contact> searchContacts(
             @Param("search") String search,
