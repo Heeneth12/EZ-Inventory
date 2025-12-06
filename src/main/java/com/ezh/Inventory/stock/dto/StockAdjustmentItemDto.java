@@ -15,7 +15,7 @@ import lombok.NoArgsConstructor;
 public class StockAdjustmentItemDto {
     @NotNull
     private Long itemId;
-
+    private String batchNumber;
     @Min(value = 0, message = "Quantity cannot be negative")
     private Integer quantity;
 

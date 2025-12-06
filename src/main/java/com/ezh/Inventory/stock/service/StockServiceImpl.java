@@ -4,6 +4,7 @@ import com.ezh.Inventory.items.repository.ItemRepository;
 import com.ezh.Inventory.stock.dto.*;
 import com.ezh.Inventory.stock.entity.*;
 import com.ezh.Inventory.stock.repository.StockAdjustmentRepository;
+import com.ezh.Inventory.stock.repository.StockBatchRepository; // <--- NEW IMPORT
 import com.ezh.Inventory.stock.repository.StockLedgerRepository;
 import com.ezh.Inventory.stock.repository.StockRepository;
 import com.ezh.Inventory.utils.common.CommonResponse;
@@ -15,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,8 +33,8 @@ public class StockServiceImpl implements StockService {
     private final StockRepository stockRepository;
     private final StockLedgerRepository stockLedgerRepository;
     private final StockAdjustmentRepository stockAdjustmentRepository;
+    private final StockBatchRepository stockBatchRepository; // <--- 1. NEW DEPENDENCY
     private final ItemRepository itemRepository;
-
 
     @Override
     @Transactional
@@ -42,7 +44,7 @@ public class StockServiceImpl implements StockService {
             throw new BadRequestException("Invalid quantity");
         }
 
-        // 1. Fetch Stock with LOCK (Prevents Race Conditions)
+        // 1. Fetch Stock with LOCK
         Stock stock = stockRepository
                 .findByItemIdAndWarehouseIdAndTenantId(dto.getItemId(), dto.getWarehouseId(), getTenantIdOrThrow())
                 .orElse(createNewStock(dto.getItemId(), dto.getWarehouseId()));
@@ -51,40 +53,62 @@ public class StockServiceImpl implements StockService {
         int beforeQty = stock.getClosingQty();
         BigDecimal transactionPrice = dto.getUnitPrice() != null ? dto.getUnitPrice() : BigDecimal.ZERO;
 
-        // 2. Handle IN (Purchase, Returns, Adjustment Up)
-        if (dto.getTransactionType() == MovementType.IN) {
+        // Safe fetch of Average Cost
+        BigDecimal currentAvgCost = stock.getAverageCost() != null ? stock.getAverageCost() : BigDecimal.ZERO;
 
-            // CALCULATE WEIGHTED AVERAGE COST (Only for purchases/positive value adds)
+        // --- 2. Handle IN (Purchase, Returns) ---
+        if (dto.getTransactionType() == MovementType.IN) {
+            // Note: Batch Creation happens in GoodsReceiptService, here we just update the Master Stock
+
             if (transactionPrice.compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal currentTotalValue = stock.getAverageCost().multiply(BigDecimal.valueOf(beforeQty));
+                BigDecimal currentTotalValue = currentAvgCost.multiply(BigDecimal.valueOf(beforeQty));
                 BigDecimal incomingTotalValue = transactionPrice.multiply(BigDecimal.valueOf(qty));
 
                 BigDecimal newTotalValue = currentTotalValue.add(incomingTotalValue);
                 BigDecimal newTotalQty = BigDecimal.valueOf(beforeQty + qty);
 
-                // Avoid division by zero
                 if (newTotalQty.compareTo(BigDecimal.ZERO) > 0) {
-                    // Rounding Mode HALF_UP is standard for currency
                     stock.setAverageCost(newTotalValue.divide(newTotalQty, 2, RoundingMode.HALF_UP));
                 }
             }
-
             stock.setInQty(stock.getInQty() + qty);
             stock.setClosingQty(beforeQty + qty);
-
-            // Update total Stock Value based on new Average
             stock.setStockValue(stock.getAverageCost().multiply(BigDecimal.valueOf(stock.getClosingQty())));
         }
 
-        // 3. Handle OUT (Sales, Write-off, Adjustment Down)
+        // --- 3. Handle OUT (Sales, Adjustments) ---
+        BigDecimal costForLedger = currentAvgCost; // Default to WAC
+
         if (dto.getTransactionType() == MovementType.OUT) {
+
+            // Check Global Availability first
             if (beforeQty < qty) {
-                throw new BadRequestException("Not enough stock available. Current: " + beforeQty);
+                throw new BadRequestException("Not enough stock available globally. Current: " + beforeQty);
             }
+
+            // --- BATCH LOGIC START ---
+            if (dto.getBatchNumber() != null && !dto.getBatchNumber().isEmpty()) {
+                // User wants to sell from a SPECIFIC BATCH (e.g., The Cheap One)
+                StockBatch batch = stockBatchRepository
+                        .findByItemIdAndBatchNumberAndWarehouseId(dto.getItemId(), dto.getBatchNumber(), dto.getWarehouseId())
+                        .orElseThrow(() -> new CommonException("Batch " + dto.getBatchNumber() + " not found", HttpStatus.BAD_REQUEST));
+
+                if (batch.getRemainingQty() < qty) {
+                    throw new BadRequestException("Not enough stock in Batch " + dto.getBatchNumber());
+                }
+
+                // Update Batch
+                batch.setRemainingQty(batch.getRemainingQty() - qty);
+                stockBatchRepository.save(batch);
+
+                // KEY CHANGE: Use Batch Price, NOT Average Cost
+                costForLedger = batch.getBuyPrice();
+            }
+            // --- BATCH LOGIC END ---
+
             stock.setOutQty(stock.getOutQty() + qty);
             stock.setClosingQty(beforeQty - qty);
-
-            // Average Cost DOES NOT CHANGE on OUT, but Total Value decreases
+            // Stock Value reduces based on Average, but Ledger records Specific Cost
             stock.setStockValue(stock.getAverageCost().multiply(BigDecimal.valueOf(stock.getClosingQty())));
         }
 
@@ -101,7 +125,7 @@ public class StockServiceImpl implements StockService {
                 .quantity(qty)
                 .beforeQty(beforeQty)
                 .afterQty(stock.getClosingQty())
-                .unitPrice(transactionPrice) // Save the price of this specific transaction
+                .unitPrice(costForLedger) // <--- Writes Specific Price (if batch) or Avg Price
                 .build();
 
         stockLedgerRepository.save(ledger);
@@ -112,6 +136,7 @@ public class StockServiceImpl implements StockService {
                 .message("Stock updated successfully")
                 .build();
     }
+
 
     @Override
     @Transactional(readOnly = true)
@@ -129,18 +154,16 @@ public class StockServiceImpl implements StockService {
         return stockLedger.map(this::convertToDTO);
     }
 
-
     @Override
     @Transactional
     public CommonResponse createStockAdjustment(StockAdjustmentBatchDto batchDto) throws CommonException {
-
         Long tenantId = getTenantIdOrThrow();
         Long warehouseId = batchDto.getWarehouseId();
-        AdjustmentMode batchMode = batchDto.getMode(); // <--- Read Mode Once
+        AdjustmentMode batchMode = batchDto.getMode();
 
         for (StockAdjustmentItemDto itemDto : batchDto.getItems()) {
 
-            // 1. Get Current Stock
+            // 1. Get Stock
             Stock stock = stockRepository
                     .findByItemIdAndWarehouseIdAndTenantId(itemDto.getItemId(), warehouseId, tenantId)
                     .orElse(createNewStock(itemDto.getItemId(), warehouseId));
@@ -149,39 +172,30 @@ public class StockServiceImpl implements StockService {
             int finalCountedQty;
             int difference;
 
-            // 2. Apply the BATCH MODE to this item
+            // 2. Logic based on Mode
             switch (batchMode) {
                 case REMOVE:
-                    // Batch is for Damages/Losses
-                    // Input 5 means: "Remove 5". Result: 100 - 5 = 95
                     difference = -itemDto.getQuantity();
                     finalCountedQty = systemQty - itemDto.getQuantity();
                     break;
-
                 case ADD:
-                    // Batch is for Found items/Recoveries
-                    // Input 5 means: "Add 5". Result: 100 + 5 = 105
                     difference = itemDto.getQuantity();
                     finalCountedQty = systemQty + itemDto.getQuantity();
                     break;
-
                 case ABSOLUTE:
                 default:
-                    // Batch is for Stock Take/Audit
-                    // Input 95 means: "Count is 95". Result: 95 - 100 = -5
                     finalCountedQty = itemDto.getQuantity();
                     difference = finalCountedQty - systemQty;
                     break;
             }
 
-            // Safety Check
             if (finalCountedQty < 0) {
                 throw new BadRequestException("Adjustment would result in negative stock for Item ID: " + itemDto.getItemId());
             }
 
             if (difference == 0) continue;
 
-            // 3. Save Adjustment Record
+            // 3. Save Adjustment
             StockAdjustment adjustment = StockAdjustment.builder()
                     .itemId(itemDto.getItemId())
                     .tenantId(tenantId)
@@ -191,13 +205,13 @@ public class StockServiceImpl implements StockService {
                     .systemQty(systemQty)
                     .countedQty(finalCountedQty)
                     .differenceQty(difference)
-                    .adjustedBy(1L) // Replace with User Context
+                    .adjustedBy(1L)
                     .adjustedAt(System.currentTimeMillis())
                     .build();
 
             stockAdjustmentRepository.save(adjustment);
 
-            // 4. Update Stock & Ledger
+            // 4. Update Stock
             MovementType movementType = (difference > 0) ? MovementType.IN : MovementType.OUT;
 
             StockUpdateDto updateDto = StockUpdateDto.builder()
@@ -208,23 +222,24 @@ public class StockServiceImpl implements StockService {
                     .referenceType(ReferenceType.ADJUSTMENT)
                     .referenceId(adjustment.getId())
                     .unitPrice(stock.getAverageCost())
+                    // NOTE: If you want to support Batch Adjustments (e.g. Expired Batch),
+                    // you need to add 'batchNumber' to StockAdjustmentItemDto and pass it here.
+                    .batchNumber(itemDto.getBatchNumber())
                     .build();
 
             updateStock(updateDto);
         }
-
-        return CommonResponse.builder()
-                .status(Status.SUCCESS)
-                .message("Stock adjustment batch processed successfully")
-                .build();
+        return CommonResponse.builder().message("Batch processed").build();
     }
 
-
+    // 2. UPDATED HELPER TO FIX NULL BUG
     private Stock createNewStock(Long itemId, Long warehouseId) {
         return Stock.builder()
                 .itemId(itemId)
                 .tenantId(getTenantIdOrThrow())
                 .warehouseId(warehouseId)
+                .averageCost(BigDecimal.ZERO)
+                .stockValue(BigDecimal.ZERO)
                 .openingQty(0)
                 .inQty(0)
                 .outQty(0)
@@ -232,6 +247,7 @@ public class StockServiceImpl implements StockService {
                 .build();
     }
 
+    // ... DTO Converters ...
     private StockDto convertToDTO(Stock stock) {
         return StockDto.builder()
                 .id(stock.getId())
@@ -258,11 +274,3 @@ public class StockServiceImpl implements StockService {
                 .build();
     }
 }
-
-//updateStock(new StockUpdateDto(itemId, warehouseId, receivedQty, "IN", "GRN", grnId, null));
-//updateStock(new StockUpdateDto(itemId, warehouseId, soldQty, "OUT", "SALE", invoiceId, null));
-//updateStock(new StockUpdateDto(itemId, warehouseId, 5, "IN", "ADJUSTMENT", auditId, "Extra found"));
-//updateStock(new StockUpdateDto(itemId, warehouseId, 3, "OUT", "ADJUSTMENT", auditId, "Missing stock"));
-
-
-

@@ -14,6 +14,7 @@ import java.util.List;
 @AllArgsConstructor
 public class StockAdjustmentBatchDto {
     private Long warehouseId;
+    private String batchNumber;
     @NotNull(message = "Mode is required")
     private AdjustmentMode mode;
     private String notes;

@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 public class StockUpdateDto {
     private Long itemId;
     private Long warehouseId;
+    private String batchNumber;
     private Integer quantity;
     private BigDecimal unitPrice;
     private MovementType transactionType;    // IN or OUT
