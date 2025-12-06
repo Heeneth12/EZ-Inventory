@@ -4,7 +4,7 @@ import com.ezh.Inventory.items.repository.ItemRepository;
 import com.ezh.Inventory.stock.dto.*;
 import com.ezh.Inventory.stock.entity.*;
 import com.ezh.Inventory.stock.repository.StockAdjustmentRepository;
-import com.ezh.Inventory.stock.repository.StockBatchRepository; // <--- NEW IMPORT
+import com.ezh.Inventory.stock.repository.StockBatchRepository;
 import com.ezh.Inventory.stock.repository.StockLedgerRepository;
 import com.ezh.Inventory.stock.repository.StockRepository;
 import com.ezh.Inventory.utils.common.CommonResponse;
@@ -33,7 +33,7 @@ public class StockServiceImpl implements StockService {
     private final StockRepository stockRepository;
     private final StockLedgerRepository stockLedgerRepository;
     private final StockAdjustmentRepository stockAdjustmentRepository;
-    private final StockBatchRepository stockBatchRepository; // <--- 1. NEW DEPENDENCY
+    private final StockBatchRepository stockBatchRepository;
     private final ItemRepository itemRepository;
 
     @Override
@@ -125,7 +125,7 @@ public class StockServiceImpl implements StockService {
                 .quantity(qty)
                 .beforeQty(beforeQty)
                 .afterQty(stock.getClosingQty())
-                .unitPrice(costForLedger) // <--- Writes Specific Price (if batch) or Avg Price
+                .unitPrice(costForLedger)
                 .build();
 
         stockLedgerRepository.save(ledger);
@@ -222,8 +222,6 @@ public class StockServiceImpl implements StockService {
                     .referenceType(ReferenceType.ADJUSTMENT)
                     .referenceId(adjustment.getId())
                     .unitPrice(stock.getAverageCost())
-                    // NOTE: If you want to support Batch Adjustments (e.g. Expired Batch),
-                    // you need to add 'batchNumber' to StockAdjustmentItemDto and pass it here.
                     .batchNumber(itemDto.getBatchNumber())
                     .build();
 
@@ -232,7 +230,6 @@ public class StockServiceImpl implements StockService {
         return CommonResponse.builder().message("Batch processed").build();
     }
 
-    // 2. UPDATED HELPER TO FIX NULL BUG
     private Stock createNewStock(Long itemId, Long warehouseId) {
         return Stock.builder()
                 .itemId(itemId)
@@ -247,7 +244,6 @@ public class StockServiceImpl implements StockService {
                 .build();
     }
 
-    // ... DTO Converters ...
     private StockDto convertToDTO(Stock stock) {
         return StockDto.builder()
                 .id(stock.getId())
