@@ -10,6 +10,7 @@ import java.math.BigDecimal;
 @NoArgsConstructor
 @AllArgsConstructor
 public class PurchaseReturnItemDto {
+    private Long id;
     private Long itemId;
     private Integer returnQty;
     private String batchNumber;

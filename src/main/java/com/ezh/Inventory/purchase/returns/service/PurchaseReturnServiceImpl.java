@@ -37,7 +37,7 @@ public class PurchaseReturnServiceImpl implements PurchaseReturnService {
     private final PurchaseReturnRepository returnRepository;
     private final PurchaseReturnItemRepository returnItemRepository;
     private final StockService stockService;
-    private final StockRepository stockRepository; // Need to fetch warehouse info if not provided
+    private final StockRepository stockRepository;
 
     @Override
     @Transactional
@@ -133,15 +133,18 @@ public class PurchaseReturnServiceImpl implements PurchaseReturnService {
                 .toList();
 
         return PurchaseReturnDto.builder()
+                .id(pr.getId())
                 .supplierId(pr.getSupplierId())
                 .goodsReceiptId(pr.getGoodsReceiptId())
                 .reason(pr.getReason())
                 .items(itemDtos)
+                .status(pr.getStatus())
                 .build();
     }
 
     private PurchaseReturnItemDto mapToItemDto(PurchaseReturnItem item) {
         return PurchaseReturnItemDto.builder()
+                .id(item.getId())
                 .itemId(item.getItemId())
                 .returnQty(item.getReturnQty())
                 .refundPrice(item.getRefundPrice())
