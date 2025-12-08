@@ -32,7 +32,7 @@ public class GoodsReceiptController {
     }
 
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseResource<Page<GrnDto>> getAllPo(
+    public ResponseResource<Page<GrnDto>> getAllGrn(
             @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "10") int size) {
         log.info("Fetching GRN details page={} size={}", page, size);
         Page<GrnDto> result = goodsReceiptService.getAllGrns(page, size);

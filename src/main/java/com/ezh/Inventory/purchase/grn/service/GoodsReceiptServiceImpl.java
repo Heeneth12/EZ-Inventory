@@ -12,6 +12,7 @@ import com.ezh.Inventory.purchase.po.entity.PurchaseOrder;
 import com.ezh.Inventory.purchase.po.entity.PurchaseOrderItem;
 import com.ezh.Inventory.purchase.po.repository.PurchaseOrderItemRepository;
 import com.ezh.Inventory.purchase.po.repository.PurchaseOrderRepository;
+import com.ezh.Inventory.purchase.po.service.PurchaseOrderServiceImpl;
 import com.ezh.Inventory.stock.dto.StockUpdateDto;
 import com.ezh.Inventory.stock.entity.MovementType;
 import com.ezh.Inventory.stock.entity.ReferenceType;
@@ -191,8 +192,14 @@ public class GoodsReceiptServiceImpl implements GoodsReceiptService {
 
     private GrnDto mapToGrnDto(GoodsReceipt grn, List<GoodsReceiptItem> items) {
 
+        Long tenantId = UserContextUtil.getTenantIdOrThrow();
+        PurchaseOrder purchaseOrder = poRepository.findByIdAndTenantId(grn.getPurchaseOrderId(), tenantId)
+                .orElseThrow(() -> new CommonException("PO not found", HttpStatus.BAD_REQUEST));
+
         return GrnDto.builder()
                 .id(grn.getId())
+                .supplierId(purchaseOrder.getSupplierId())
+                .supplierName(purchaseOrder.getSupplierName())
                 .grnNumber(grn.getGrnNumber())
                 .purchaseOrderId(grn.getPurchaseOrderId())
                 .supplierInvoiceNo(grn.getSupplierInvoiceNo())

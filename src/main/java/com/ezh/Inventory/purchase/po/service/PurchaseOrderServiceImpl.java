@@ -200,6 +200,7 @@ public class PurchaseOrderServiceImpl implements PurchaseOrderService {
         if (passItems && items != null) {
             List<PurchaseOrderItemDto> itemDtos = items.stream()
                     .map(item -> PurchaseOrderItemDto.builder()
+                            .id(item.getId())
                             .itemId(item.getItemId())
                             .orderedQty(item.getOrderedQty())
                             .unitPrice(item.getUnitPrice())
