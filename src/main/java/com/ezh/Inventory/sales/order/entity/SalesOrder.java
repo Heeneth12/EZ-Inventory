@@ -1,6 +1,5 @@
 package com.ezh.Inventory.sales.order.entity;
 
-
 import com.ezh.Inventory.contacts.entiry.Contact;
 import com.ezh.Inventory.utils.common.CommonSerializable;
 import jakarta.persistence.*;
@@ -8,6 +7,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 
 @Entity
@@ -22,32 +22,43 @@ public class SalesOrder extends CommonSerializable {
     @Column(name = "tenant_id", nullable = false)
     private Long tenantId;
 
+    @Column(name = "warehouse_id", nullable = false)
+    private Long warehouseId;
+
     @Column(name = "order_number", nullable = false, unique = true, length = 40)
-    private String orderNumber;  // SO-2025-0001
+    private String orderNumber;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "customer_id", nullable = false)
-    private Contact customer; // Existing Contact table used as Customer
+    private Contact customer;
 
     @Column(name = "order_date", nullable = false)
     private LocalDate orderDate;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 30, nullable = false)
-    private SalesOrderStatus status;  // CREATED | PARTIALLY_DELIVERED | DELIVERED | CANCELLED
+    private SalesOrderStatus status;
 
+    @Builder.Default
     @Column(name = "sub_total")
-    private BigDecimal subTotal; // Sum of (qty * unitPrice) for all items
+    private BigDecimal subTotal = BigDecimal.ZERO;
 
+    @Builder.Default
     @Column(name = "total_discount")
-    private BigDecimal totalDiscount; // Sum of all item discounts
+    private BigDecimal totalDiscount = BigDecimal.ZERO;
 
+    @Builder.Default
+    @Column(name = "total_tax")
+    private BigDecimal totalTax = BigDecimal.ZERO;
+
+    @Builder.Default
     @Column(name = "grand_total", nullable = false)
-    private BigDecimal grandTotal; // subTotal - totalDiscount + totalTax
-
-    @OneToMany(mappedBy = "salesOrder", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<SalesOrderItem> items;
+    private BigDecimal grandTotal = BigDecimal.ZERO;
 
     @Column(name = "remarks", length = 500)
     private String remarks;
+
+    @Builder.Default
+    @OneToMany(mappedBy = "salesOrder", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<SalesOrderItem> items = new ArrayList<>();
 }

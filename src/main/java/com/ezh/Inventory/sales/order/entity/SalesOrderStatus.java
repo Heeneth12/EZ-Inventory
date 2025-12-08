@@ -1,9 +1,10 @@
 package com.ezh.Inventory.sales.order.entity;
 
 public enum SalesOrderStatus {
-    PENDING,                 // Order created but no billing started
-    PARTIALLY_BILLED,        // Some items billed
-    FULLY_BILLED,            // All items billed / converted to bill
-    CANCELLED                // Order cancelled
+    CREATED,            // Draft / Open
+    PARTIALLY_INVOICED, // Some items billed
+    FULLY_INVOICED,     // All items billed
+    CANCELLED,          // Dead order
+    COMPLETED           // Delivered & Closed
 }
 

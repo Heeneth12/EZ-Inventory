@@ -27,11 +27,19 @@ public class SalesOrderItem extends CommonSerializable {
     @Column(name = "quantity", nullable = false)
     private Integer quantity;
 
-    @Column(name = "unit_price", nullable = false)
-    private BigDecimal unitPrice;   // price before discount
+    @Column(name = "ordered_qty", nullable = false)
+    private Integer orderedQty; // What they asked for
 
+    @Builder.Default
+    @Column(name = "invoiced_qty", nullable = false)
+    private Integer invoicedQty = 0;
+
+    @Column(name = "unit_price", nullable = false)
+    private BigDecimal unitPrice;
+
+    @Builder.Default
     @Column(name = "discount")
-    private BigDecimal discount;
+    private BigDecimal discount = BigDecimal.ZERO;
 
     @Column(name = "line_total", nullable = false)
     private BigDecimal lineTotal;  // (unit_price * qty) − discountAmount

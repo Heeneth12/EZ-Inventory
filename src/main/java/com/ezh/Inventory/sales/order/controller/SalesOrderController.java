@@ -1,6 +1,5 @@
 package com.ezh.Inventory.sales.order.controller;
 
-import com.ezh.Inventory.sales.order.dto.SalesOrderCreateDto;
 import com.ezh.Inventory.sales.order.dto.SalesOrderDto;
 import com.ezh.Inventory.sales.order.dto.SalesOrderFilter;
 import com.ezh.Inventory.sales.order.service.SalesOrderService;
@@ -23,23 +22,23 @@ public class SalesOrderController {
     private final SalesOrderService salesOrderService;
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseResource<CommonResponse> createSalesOrder(@RequestBody SalesOrderCreateDto salesOrderCreateDto) throws CommonException {
-        log.info("Creating new Sales Order: {}", salesOrderCreateDto);
-        CommonResponse response = salesOrderService.createSalesOrder(salesOrderCreateDto);
+    public ResponseResource<CommonResponse> createSalesOrder(@RequestBody SalesOrderDto salesOrderDto) throws CommonException {
+        log.info("Creating new Sales Order: {}", salesOrderDto);
+        CommonResponse response = salesOrderService.createSalesOrder(salesOrderDto);
         return ResponseResource.success(HttpStatus.CREATED, response, "Sales Order Created Successfully");
     }
 
     @PostMapping(value = "/{id}/update", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseResource<CommonResponse> updateSalesOrder(@PathVariable Long id, @RequestBody SalesOrderCreateDto salesOrderCreateDto) throws CommonException {
-        log.info("Updating Sales Order {}: {}", id, salesOrderCreateDto);
-        CommonResponse response = salesOrderService.updateSalesOrder(id, salesOrderCreateDto);
+    public ResponseResource<CommonResponse> updateSalesOrder(@PathVariable Long id, @RequestBody SalesOrderDto salesOrderDto) throws CommonException {
+        log.info("Updating Sales Order {}: {}", id, salesOrderDto);
+        CommonResponse response = salesOrderService.updateSalesOrder(id, salesOrderDto);
         return ResponseResource.success(HttpStatus.OK, response, "Sales Order Updated Successfully");
     }
 
     @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseResource<SalesOrderDto> getSalesOrder(@PathVariable Long id) throws CommonException {
         log.info("Fetching Sales Order: {}", id);
-        SalesOrderDto response = salesOrderService.getSalesOrder(id);
+        SalesOrderDto response = salesOrderService.getSalesOrderById(id);
         return ResponseResource.success(HttpStatus.OK, response, "Sales Order Fetched Successfully");
     }
 

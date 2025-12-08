@@ -16,6 +16,7 @@ public class SalesOrderDto {
 
     private Long id;              // only for update
     private Long tenantId;
+    private Long warehouseId;
     private String orderNumber;   // SO-001, SO-2025-001
     private LocalDate orderDate;
     private Long customerId;      // Contact ID (Customer)
