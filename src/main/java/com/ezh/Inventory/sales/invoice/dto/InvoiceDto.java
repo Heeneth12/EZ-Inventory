@@ -3,6 +3,7 @@ package com.ezh.Inventory.sales.invoice.dto;
 import com.ezh.Inventory.contacts.dto.ContactDto;
 import com.ezh.Inventory.sales.invoice.entity.InvoiceStatus;
 import com.ezh.Inventory.sales.order.dto.SalesOrderDto;
+import jakarta.persistence.Column;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -30,6 +31,8 @@ public class InvoiceDto {
     private BigDecimal subTotal; // qty × price (sum of all line totals before tax)
     private BigDecimal discountAmount; // optional (invoice level)
     private BigDecimal taxAmount; // total tax
+    private BigDecimal totalDiscount = BigDecimal.ZERO;
+    private BigDecimal totalTax = BigDecimal.ZERO;
     private BigDecimal grandTotal; // subTotal - discount + tax
     private BigDecimal amountPaid; // how much customer paid
     private BigDecimal balance; // outstanding amount

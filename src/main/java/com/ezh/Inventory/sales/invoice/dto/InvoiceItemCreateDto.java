@@ -15,4 +15,6 @@ public class InvoiceItemCreateDto {
     private Integer quantity;
     private String batchNumber; // Optional (Specific Batch)
     private BigDecimal unitPrice; // Optional override
+    private BigDecimal discountAmount; // Per item discount
+    private BigDecimal taxAmount;      // Per item tax
 }

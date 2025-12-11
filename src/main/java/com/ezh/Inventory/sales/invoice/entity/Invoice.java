@@ -47,11 +47,13 @@ public class Invoice extends CommonSerializable {
     @Column(name = "sub_total", nullable = false)
     private BigDecimal subTotal; // qty × price (sum of all line totals before tax)
 
-    @Column(name = "discount_amount")
-    private BigDecimal discountAmount; // optional (invoice level)
+    @Builder.Default
+    @Column(name = "total_discount")
+    private BigDecimal totalDiscount = BigDecimal.ZERO;
 
-    @Column(name = "tax_amount")
-    private BigDecimal taxAmount; // total tax
+    @Builder.Default
+    @Column(name = "total_tax")
+    private BigDecimal totalTax = BigDecimal.ZERO;
 
     @Column(name = "grand_total", nullable = false)
     private BigDecimal grandTotal; // subTotal - discount + tax

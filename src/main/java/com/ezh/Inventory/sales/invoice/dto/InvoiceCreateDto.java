@@ -15,11 +15,14 @@ import java.util.List;
 public class InvoiceCreateDto {
     private Long salesOrderId;
     private Long customerId;
+    private Long warehouseId;
     private String customerName;
     private List<InvoiceItemCreateDto> items;
     private BigDecimal discountAmount;
     private String remarks;
 
+    private BigDecimal totalDiscount; // Flat discount on whole invoice
+    private BigDecimal totalTax;
     //DELIVERY DETAILS ---
     private ShipmentType deliveryType; // PICKUP, COURIER
     private Date scheduledDate;   // For To-Do list

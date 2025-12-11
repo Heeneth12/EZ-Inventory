@@ -64,107 +64,37 @@ public class InvoiceServiceImpl implements InvoiceService {
     public CommonResponse createInvoice(InvoiceCreateDto dto) throws CommonException {
         Long tenantId = UserContextUtil.getTenantIdOrThrow();
 
-        // A. Validate Sales Order
-        SalesOrder salesOrder = salesOrderRepository.findByIdAndTenantId(dto.getSalesOrderId(), tenantId)
-                .orElseThrow(() -> new CommonException("Sales order not found", HttpStatus.NOT_FOUND));
+        SalesOrder salesOrder = getOrCreateSalesOrder(dto, tenantId);
 
-        if (salesOrder.getStatus() == SalesOrderStatus.FULLY_INVOICED || salesOrder.getStatus() == SalesOrderStatus.CANCELLED) {
-            throw new BadRequestException("Sales Order is already completed or cancelled");
-        }
-
-        // B. Validate Contact
         Contact contact = contactRepository.findByIdAndTenantId(dto.getCustomerId(), tenantId)
                 .orElseThrow(() -> new CommonException("Customer not found", HttpStatus.NOT_FOUND));
 
-        // C. Create Invoice Header
         Invoice invoice = Invoice.builder()
                 .tenantId(tenantId)
-                .warehouseId(salesOrder.getWarehouseId()) // Inherit warehouse
+                .warehouseId(salesOrder.getWarehouseId())
                 .invoiceNumber(generateInvoiceNumber())
                 .invoiceDate(new Date())
                 .salesOrder(salesOrder)
                 .customer(contact)
                 .status(InvoiceStatus.PENDING)
-                .discountAmount(dto.getDiscountAmount() != null ? dto.getDiscountAmount() : BigDecimal.ZERO)
+                .items(new ArrayList<>())
+                .remarks(dto.getRemarks())
+                //Now this SAVE will work because all non-null fields have values
+                .subTotal(BigDecimal.ZERO)
+                .grandTotal(BigDecimal.ZERO)
+                .totalDiscount(BigDecimal.ZERO)
+                .totalTax(BigDecimal.ZERO)
                 .amountPaid(BigDecimal.ZERO)
                 .balance(BigDecimal.ZERO)
-                .grandTotal(BigDecimal.ZERO)
-                .subTotal(BigDecimal.ZERO)
-                .remarks(dto.getRemarks())
                 .build();
 
-        invoiceRepository.save(invoice); // Save to generate ID
+        invoice = invoiceRepository.save(invoice);
 
-        BigDecimal subTotal = BigDecimal.ZERO;
-        BigDecimal totalTax = BigDecimal.ZERO; // Add logic if you track tax per item
-        List<InvoiceItem> invoiceItems = new ArrayList<>();
+        processInvoiceItems(invoice, dto.getItems());
 
-        // D. Process Line Items
-        for (InvoiceItemCreateDto itemDto : dto.getItems()) {
+        //Finalize Financials (Apply Header Level Flat Logic)
+        finalizeInvoiceTotals(invoice, dto);
 
-            // 1. Validate against Order Line
-            SalesOrderItem soItem = salesOrderItemRepository.findById(itemDto.getSoItemId())
-                    .orElseThrow(() -> new BadRequestException("Invalid SO Line Item ID"));
-
-            if (!soItem.getSalesOrder().getId().equals(salesOrder.getId())) {
-                throw new BadRequestException("Item does not belong to this Sales Order");
-            }
-
-            // 2. Validate Quantity (Prevent over-invoicing)
-            int remainingQty = soItem.getOrderedQty() - soItem.getInvoicedQty();
-            if (itemDto.getQuantity() > remainingQty) {
-                throw new BadRequestException("Cannot invoice " + itemDto.getQuantity() + " for " + soItem.getItemName() + ". Only " + remainingQty + " remaining.");
-            }
-
-            // 3. Fetch Snapshot Data
-            Item itemMaster = itemRepository.findById(itemDto.getItemId())
-                    .orElseThrow(() -> new CommonException("Item Master not found", HttpStatus.NOT_FOUND));
-
-            // 4. Calculate Financials
-            BigDecimal price = itemDto.getUnitPrice() != null ? itemDto.getUnitPrice() : soItem.getUnitPrice();
-            BigDecimal lineTotal = price.multiply(BigDecimal.valueOf(itemDto.getQuantity()));
-            subTotal = subTotal.add(lineTotal);
-
-            // 5. Create Invoice Item (Snapshot)
-            InvoiceItem invoiceItem = InvoiceItem.builder()
-                    .invoice(invoice)
-                    .soItemId(soItem.getId())
-                    .itemId(itemMaster.getId())
-                    .itemName(itemMaster.getName()) // Snapshot Name
-                    .sku(itemMaster.getSku())       // Snapshot SKU
-                    .batchNumber(itemDto.getBatchNumber()) // Specific Batch
-                    .quantity(itemDto.getQuantity())
-                    .unitPrice(price)
-                    .lineTotal(lineTotal)
-                    .build();
-
-            invoiceItems.add(invoiceItem);
-
-            // 6. UPDATE STOCK (Critical: Deducts from Inventory)
-            StockUpdateDto stockUpdate = StockUpdateDto.builder()
-                    .itemId(itemDto.getItemId())
-                    .warehouseId(salesOrder.getWarehouseId())
-                    .quantity(itemDto.getQuantity())
-                    .transactionType(MovementType.OUT)
-                    .referenceType(ReferenceType.SALE)
-                    .referenceId(invoice.getId())
-                    .batchNumber(itemDto.getBatchNumber()) // Critical for specific costing
-                    .build();
-
-            stockService.updateStock(stockUpdate);
-
-            // 7. Update Sales Order Progress
-            soItem.setInvoicedQty(soItem.getInvoicedQty() + itemDto.getQuantity());
-            salesOrderItemRepository.save(soItem);
-        }
-
-        invoiceItemRepository.saveAll(invoiceItems);
-
-        // E. Finalize Invoice Header
-        invoice.setSubTotal(subTotal);
-        BigDecimal grandTotal = subTotal.subtract(invoice.getDiscountAmount());
-        invoice.setGrandTotal(grandTotal);
-        invoice.setBalance(grandTotal); // Balance is full amount initially
         invoiceRepository.save(invoice);
 
         //TRIGGER DELIVERY LOGIC
@@ -201,6 +131,218 @@ public class InvoiceServiceImpl implements InvoiceService {
     }
 
 
+    private void processInvoiceItems(Invoice invoice, List<InvoiceItemCreateDto> itemDtos) {
+
+        if (itemDtos == null || itemDtos.isEmpty()) {
+            throw new BadRequestException("Invoice must contain at least one item");
+        }
+
+        for (InvoiceItemCreateDto itemDto : itemDtos) {
+
+            // 1. Fetch & Validate SO Line
+            SalesOrderItem soItem = salesOrderItemRepository.findById(itemDto.getSoItemId())
+                    .orElseThrow(() -> new BadRequestException("Invalid SO Line Item ID"));
+
+            validateItemBelongsToOrder(soItem, invoice.getSalesOrder());
+            validateRemainingQuantity(soItem, itemDto.getQuantity());
+
+            // 2. Fetch Master Data (Snapshot)
+            Item itemMaster = itemRepository.findById(itemDto.getItemId())
+                    .orElseThrow(() -> new CommonException("Item Master not found", HttpStatus.NOT_FOUND));
+
+            // 3. Calculate Item Financials
+            InvoiceItem invoiceItem = calculateAndMapItem(invoice, itemDto, soItem, itemMaster);
+            invoice.getItems().add(invoiceItem);
+
+            //STOCK DEDUCTION (Movement: OUT)
+            deductStock(invoice, itemDto);
+
+            // 5. Update Progress on Sales Order
+            soItem.setInvoicedQty(soItem.getInvoicedQty() + itemDto.getQuantity());
+            salesOrderItemRepository.save(soItem);
+        }
+    }
+
+    //Calculate Single Item (Item Level Logic) ---
+    private InvoiceItem calculateAndMapItem(Invoice invoice, InvoiceItemCreateDto dto, SalesOrderItem soItem, Item master) {
+        //Base Values (Allow override from DTO, fallback to SO Price)
+        BigDecimal quantity = BigDecimal.valueOf(dto.getQuantity());
+        BigDecimal price = dto.getUnitPrice() != null ? dto.getUnitPrice() : soItem.getUnitPrice();
+
+        //Item Level Adjustments
+        BigDecimal itemDiscount = dto.getDiscountAmount() != null ? dto.getDiscountAmount() : BigDecimal.ZERO;
+        BigDecimal itemTax = dto.getTaxAmount() != null ? dto.getTaxAmount() : BigDecimal.ZERO;
+
+        //Calculate Line Total
+        //Formula: (Price * Qty) - Discount + Tax
+        BigDecimal grossTotal = price.multiply(quantity);
+        BigDecimal lineTotal = grossTotal.subtract(itemDiscount).add(itemTax);
+
+        return InvoiceItem.builder()
+                .invoice(invoice)
+                .soItemId(soItem.getId())
+                .itemId(master.getId())
+                .itemName(master.getName())
+                .sku(master.getSku())
+                .batchNumber(dto.getBatchNumber())
+                .quantity(dto.getQuantity())
+                .unitPrice(price)
+                .discountAmount(itemDiscount) // Store per-item discount
+                .taxAmount(itemTax)           // Store per-item tax
+                .lineTotal(lineTotal)
+                .build();
+    }
+
+    //Final Aggregation (Header Level Logic) ---
+    private void finalizeInvoiceTotals(Invoice invoice, InvoiceCreateDto dto) {
+        // 1. Initialize Accumulators
+        BigDecimal sumGrossAmount = BigDecimal.ZERO; // Pure (Price * Qty)
+        BigDecimal sumItemDiscounts = BigDecimal.ZERO;
+        BigDecimal sumItemTaxes = BigDecimal.ZERO;
+
+        // 2. Sum up processed items
+        for (InvoiceItem item : invoice.getItems()) {
+            BigDecimal itemGross = item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
+            sumGrossAmount = sumGrossAmount.add(itemGross);
+
+            sumItemDiscounts = sumItemDiscounts.add(item.getDiscountAmount());
+            sumItemTaxes = sumItemTaxes.add(item.getTaxAmount());
+        }
+
+        // 3. Get Header Level Flat Inputs
+        BigDecimal headerFlatDiscount = dto.getTotalDiscount() != null ? dto.getTotalDiscount() : BigDecimal.ZERO;
+        BigDecimal headerFlatTax = dto.getTotalTax() != null ? dto.getTotalTax() : BigDecimal.ZERO;
+
+        // 4. Calculate Final Header Fields
+        // Total Discount = (Sum Item Disc) + (Header Flat Disc)
+        BigDecimal finalTotalDiscount = sumItemDiscounts.add(headerFlatDiscount);
+
+        // Total Tax = (Sum Item Tax) + (Header Flat Tax)
+        BigDecimal finalTotalTax = sumItemTaxes.add(headerFlatTax);
+
+        // 5. Set Values on Entity
+        invoice.setSubTotal(sumGrossAmount); // Gross Goods Value
+        invoice.setTotalDiscount(finalTotalDiscount);
+        invoice.setTotalTax(finalTotalTax);
+
+        // Grand Total = SubTotal - TotalDiscount + TotalTax
+        BigDecimal grandTotal = sumGrossAmount.subtract(finalTotalDiscount).add(finalTotalTax);
+
+        invoice.setGrandTotal(grandTotal.max(BigDecimal.ZERO));
+        invoice.setBalance(invoice.getGrandTotal()); // Initial balance is the full amount
+        invoice.setAmountPaid(BigDecimal.ZERO);
+    }
+
+
+    private void validateRemainingQuantity(SalesOrderItem soItem, Integer invoiceQty) {
+        int remaining = soItem.getOrderedQty() - soItem.getInvoicedQty();
+        if (invoiceQty > remaining) {
+            throw new BadRequestException("Cannot invoice " + invoiceQty + ". Only " + remaining + " remaining for " + soItem.getItemName());
+        }
+    }
+
+    private void validateItemBelongsToOrder(SalesOrderItem soItem, SalesOrder order) {
+        if (!soItem.getSalesOrder().getId().equals(order.getId())) {
+            throw new BadRequestException("Item does not belong to this Sales Order");
+        }
+    }
+
+    private SalesOrder getOrCreateSalesOrder(InvoiceCreateDto dto, Long tenantId) {
+        // SCENARIO 1: Existing Sales Order
+        if (dto.getSalesOrderId() != null) {
+            SalesOrder so = salesOrderRepository.findByIdAndTenantId(dto.getSalesOrderId(), tenantId)
+                    .orElseThrow(() -> new CommonException("Sales order not found", HttpStatus.NOT_FOUND));
+
+            if (so.getStatus() == SalesOrderStatus.FULLY_INVOICED || so.getStatus() == SalesOrderStatus.CANCELLED) {
+                throw new BadRequestException("Sales Order is already completed or cancelled");
+            }
+            return so;
+        }
+
+        // SCENARIO 2: Create "Direct" Sales Order (Hidden Logic)
+        if (dto.getWarehouseId() == null) {
+            throw new BadRequestException("Warehouse ID is required for direct invoices");
+        }
+
+        Contact contact = contactRepository.findByIdAndTenantId(dto.getCustomerId(), tenantId)
+                .orElseThrow(() -> new CommonException("Customer not found", HttpStatus.NOT_FOUND));
+
+        // A. Create Header
+        SalesOrder newSo = SalesOrder.builder()
+                .tenantId(tenantId)
+                .warehouseId(dto.getWarehouseId())
+                .customer(contact)
+                .orderNumber("SO-DIR-" + System.currentTimeMillis()) // Unique prefix for Direct Bills
+                .orderDate(new Date())
+                .status(SalesOrderStatus.DIRECT_INVOICED)
+                .remarks("Auto-generated from Direct Invoice")
+                .items(new ArrayList<>())
+                .build();
+
+        // B. Create Items & Calculate Totals
+        BigDecimal subTotal = BigDecimal.ZERO;
+
+        // We need to keep track of the DTOs to map IDs back later
+        // Map<ItemMasterID, DTO> isn't safe if same item exists twice, but assuming unique items for now:
+        List<SalesOrderItem> newItems = new ArrayList<>();
+
+        for (InvoiceItemCreateDto itemDto : dto.getItems()) {
+            Item itemMaster = itemRepository.findById(itemDto.getItemId())
+                    .orElseThrow(() -> new CommonException("Item not found: " + itemDto.getItemId(), HttpStatus.NOT_FOUND));
+
+            BigDecimal price = itemDto.getUnitPrice() != null ? itemDto.getUnitPrice() : itemMaster.getSellingPrice();
+            BigDecimal lineTotal = price.multiply(BigDecimal.valueOf(itemDto.getQuantity())); // Simplified calc for SO
+
+            subTotal = subTotal.add(lineTotal);
+
+            SalesOrderItem soItem = SalesOrderItem.builder()
+                    .salesOrder(newSo)
+                    .itemId(itemMaster.getId())
+                    .itemName(itemMaster.getName())
+                    .orderedQty(itemDto.getQuantity())
+                    .invoicedQty(0) // Will be updated in main logic
+                    .quantity(0)
+                    .unitPrice(price)
+                    .discount(itemDto.getDiscountAmount() != null ? itemDto.getDiscountAmount() : BigDecimal.ZERO)
+                    .tax(itemDto.getTaxAmount() != null ? itemDto.getTaxAmount() : BigDecimal.ZERO) // Map Tax too
+                    .lineTotal(lineTotal) // Note: This is rough total, Invoice logic recalculates exact
+                    .build();
+
+            newItems.add(soItem);
+            newSo.getItems().add(soItem);
+        }
+
+        newSo.setSubTotal(subTotal);
+        newSo.setGrandTotal(subTotal); // Rough calc
+
+        // C. Save (Generates IDs)
+        SalesOrder savedSo = salesOrderRepository.save(newSo);
+
+        // D. CRITICAL: Inject new IDs back into the DTO
+        // This tricks the rest of your code into thinking these items always existed.
+        for (int i = 0; i < savedSo.getItems().size(); i++) {
+            SalesOrderItem savedItem = savedSo.getItems().get(i);
+            InvoiceItemCreateDto dtoItem = dto.getItems().get(i); // Relies on matching index order
+
+            dtoItem.setSoItemId(savedItem.getId());
+        }
+
+        return savedSo;
+    }
+
+    private void deductStock(Invoice invoice, InvoiceItemCreateDto dto) {
+        StockUpdateDto stockUpdate = StockUpdateDto.builder()
+                .itemId(dto.getItemId())
+                .warehouseId(invoice.getWarehouseId())
+                .quantity(dto.getQuantity())
+                .transactionType(MovementType.OUT)
+                .referenceType(ReferenceType.SALE)
+                .referenceId(invoice.getId())
+                .batchNumber(dto.getBatchNumber())
+                .build();
+        stockService.updateStock(stockUpdate);
+    }
+
     private void updateSalesOrderStatus(SalesOrder salesOrder) {
         List<SalesOrderItem> allItems = salesOrderItemRepository.findBySalesOrderId(salesOrder.getId());
 
@@ -232,6 +374,8 @@ public class InvoiceServiceImpl implements InvoiceService {
                         .sku(item.getSku())
                         .batchNumber(item.getBatchNumber())
                         .quantity(item.getQuantity())
+                        .discountAmount(item.getDiscountAmount()) // Add this
+                        .taxAmount(item.getTaxAmount())
                         .unitPrice(item.getUnitPrice())
                         .lineTotal(item.getLineTotal())
                         .build())
@@ -243,6 +387,8 @@ public class InvoiceServiceImpl implements InvoiceService {
                 .salesOrderId(invoice.getSalesOrder() != null ? invoice.getSalesOrder().getId() : null)
                 .customerName(invoice.getCustomer().getName())
                 .invoiceDate(invoice.getInvoiceDate())
+                .totalDiscount(invoice.getTotalDiscount()) // Add this
+                .totalTax(invoice.getTotalTax())           // Add this
                 .status(invoice.getStatus())
                 .subTotal(invoice.getSubTotal())
                 .grandTotal(invoice.getGrandTotal())
