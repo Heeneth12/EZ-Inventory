@@ -22,6 +22,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import static com.ezh.Inventory.utils.UserContextUtil.getTenantIdOrThrow;
 
@@ -78,6 +82,8 @@ public class StockServiceImpl implements StockService {
 
         // --- 3. Handle OUT (Sales, Adjustments) ---
         BigDecimal costForLedger = currentAvgCost; // Default to WAC
+        String consumedBatches = dto.getBatchNumber();
+        String finalBatchUsed = dto.getBatchNumber();
 
         if (dto.getTransactionType() == MovementType.OUT) {
 
@@ -86,23 +92,35 @@ public class StockServiceImpl implements StockService {
                 throw new BadRequestException("Not enough stock available globally. Current: " + beforeQty);
             }
 
+            boolean isSpecificBatch = dto.getBatchNumber() != null && !dto.getBatchNumber().isEmpty();
+
             // --- BATCH LOGIC START ---
-            if (dto.getBatchNumber() != null && !dto.getBatchNumber().isEmpty()) {
-                // User wants to sell from a SPECIFIC BATCH (e.g., The Cheap One)
+            if (isSpecificBatch) {
+                // CASE 1: User wants a specific batch (e.g., "BATCH-001")
                 StockBatch batch = stockBatchRepository
                         .findByItemIdAndBatchNumberAndWarehouseId(dto.getItemId(), dto.getBatchNumber(), dto.getWarehouseId())
-                        .orElseThrow(() -> new CommonException("Batch " + dto.getBatchNumber() + " not found", HttpStatus.BAD_REQUEST));
+                        .orElseThrow(() -> new BadRequestException("Batch " + dto.getBatchNumber() + " not found"));
 
                 if (batch.getRemainingQty() < qty) {
                     throw new BadRequestException("Not enough stock in Batch " + dto.getBatchNumber());
                 }
 
-                // Update Batch
                 batch.setRemainingQty(batch.getRemainingQty() - qty);
                 stockBatchRepository.save(batch);
 
-                // KEY CHANGE: Use Batch Price, NOT Average Cost
+                // Use specific batch price for ledger
                 costForLedger = batch.getBuyPrice();
+                finalBatchUsed = batch.getBatchNumber();
+
+            } else {
+                // CASE 2: No batch provided (null). AUTO-PICK (FIFO)
+                // This stops the code from searching for a batch named "null"
+                String allocatedBatchStr = performFifoDeduction(dto.getItemId(), dto.getWarehouseId(), qty);
+
+                // IMPORTANT: Update the DTO batch number so it gets returned in the response
+                // This ensures the InvoiceService knows which batches were actually picked
+                dto.setBatchNumber(allocatedBatchStr);
+                finalBatchUsed = allocatedBatchStr;
             }
             // --- BATCH LOGIC END ---
 
@@ -131,7 +149,9 @@ public class StockServiceImpl implements StockService {
         stockLedgerRepository.save(ledger);
 
         return CommonResponse.builder()
+                // here we ddidt sent any data to take in invoice service
                 .status(Status.SUCCESS)
+                .data(finalBatchUsed)
                 .id(String.valueOf(ledger.getId()))
                 .message("Stock updated successfully")
                 .build();
@@ -230,6 +250,42 @@ public class StockServiceImpl implements StockService {
         return CommonResponse.builder().message("Batch processed").build();
     }
 
+    @Override
+    @Transactional
+    public List<ItemStockSearchDto> searchItemsWithBatches(String query, Long warehouseId) {
+
+        // 1. Fetch Flat Data
+        List<StockSearchProjection> rawData = stockBatchRepository.searchStockWithBatches(warehouseId, query);
+
+        // 2. Group by Item ID
+        Map<Long, List<StockSearchProjection>> groupedData = rawData.stream()
+                .collect(Collectors.groupingBy(StockSearchProjection::getItemId));
+
+        // 3. Transform into Nested DTOs
+        return groupedData.values().stream().map(batchList -> {
+            // Since grouped by ID, Item info is same for all rows in 'batchList'
+            StockSearchProjection first = batchList.get(0);
+
+            // Map the list of batches
+            List<BatchDetailDto> batchDtos = batchList.stream()
+                    .map(b -> BatchDetailDto.builder()
+                            .batchNumber(b.getBatchNumber())
+                            .buyPrice(b.getBuyPrice())
+                            .remainingQty(b.getRemainingQty())
+                            .expiryDate(b.getExpiryDate())
+                            .build())
+                    .collect(Collectors.toList());
+            // Map the Parent Item
+            return ItemStockSearchDto.builder()
+                    .itemId(first.getItemId())
+                    .name(first.getItemName())
+                    .code(first.getItemCode())
+                    .sku(first.getItemSku())
+                    .batches(batchDtos) // Attach the list
+                    .build();
+        }).collect(Collectors.toList());
+    }
+
     private Stock createNewStock(Long itemId, Long warehouseId) {
         return Stock.builder()
                 .itemId(itemId)
@@ -278,5 +334,40 @@ public class StockServiceImpl implements StockService {
                 .beforeQty(stockLedger.getBeforeQty())
                 .afterQty(stockLedger.getAfterQty())
                 .build();
+    }
+
+
+    private String performFifoDeduction(Long itemId, Long warehouseId, int qtyRequired) {
+        // 1. Fetch batches with stock, ordered by Creation Date (Oldest First)
+        List<StockBatch> availableBatches = stockBatchRepository
+                .findByItemIdAndWarehouseIdAndRemainingQtyGreaterThanOrderByCreatedAtAsc(itemId, warehouseId, 0);
+
+        if (availableBatches.isEmpty()) {
+            throw new BadRequestException("No batches available with stock for this item");
+        }
+
+        int qtyToDeduct = qtyRequired;
+        List<String> usedBatchNumbers = new ArrayList<>();
+
+        for (StockBatch batch : availableBatches) {
+            if (qtyToDeduct <= 0) break;
+
+            int available = batch.getRemainingQty();
+            int take = Math.min(available, qtyToDeduct);
+
+            // Deduct
+            batch.setRemainingQty(available - take);
+            stockBatchRepository.save(batch);
+
+            usedBatchNumbers.add(batch.getBatchNumber());
+            qtyToDeduct -= take;
+        }
+
+        if (qtyToDeduct > 0) {
+            throw new BadRequestException("Data Inconsistency: Global stock says available, but Batches are empty.");
+        }
+
+        // Return "Batch-001" or "Batch-001,Batch-002"
+        return String.join(",", usedBatchNumbers);
     }
 }

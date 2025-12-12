@@ -12,6 +12,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @Slf4j
 @RestController
 @RequestMapping("/v1/stock")
@@ -33,6 +35,13 @@ public class StockController {
                                                             @RequestBody StockFilterDto filter) throws CommonException {
         log.info("Entered get current stock with : {}", filter);
         Page<StockDto> response = stockService.getCurrentStock(filter, page, size);
+        return ResponseResource.success(HttpStatus.OK, response, "Stock fetched successfully");
+    }
+
+    @PostMapping(value = "/search", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseResource<List<ItemStockSearchDto>> SearchStock(@RequestParam String query, @RequestParam Long warehouseId) throws CommonException {
+        log.info("Entered search stock with : {}", query);
+        List<ItemStockSearchDto> response = stockService.searchItemsWithBatches(query, warehouseId);
         return ResponseResource.success(HttpStatus.OK, response, "Stock fetched successfully");
     }
 
