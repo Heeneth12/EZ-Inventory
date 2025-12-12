@@ -14,7 +14,6 @@ import com.ezh.Inventory.sales.invoice.dto.InvoiceItemDto;
 import com.ezh.Inventory.sales.invoice.entity.Invoice;
 import com.ezh.Inventory.sales.invoice.entity.InvoiceStatus;
 import com.ezh.Inventory.sales.invoice.repository.InvoiceRepository;
-import com.ezh.Inventory.sales.invoice.service.InvoiceService;
 import com.ezh.Inventory.utils.UserContextUtil;
 import com.ezh.Inventory.utils.common.CommonResponse;
 import com.ezh.Inventory.utils.exception.CommonException;
@@ -49,26 +48,29 @@ public class DeliveryServiceImpl implements DeliveryService {
 
         // 1. Determine Status & Dates based on Type
         ShipmentType type = dto.getDeliveryType(); // Defaults to COURIER if null in DTO?
-        if (type == null) type = ShipmentType.OWN_FLEET; // Default
+        if (type == null) type = ShipmentType.IN_HOUSE_DELIVERY; // Default
 
         ShipmentStatus initialStatus;
         Date shippedDate = null;
         Date deliveredDate = null;
         Date scheduledDate = null;
 
-        if (type == ShipmentType.PICKUP) {
+        if (type == ShipmentType.CUSTOMER_PICKUP) {
             // Instant Handover
             initialStatus = ShipmentStatus.DELIVERED;
             shippedDate = new Date();
             deliveredDate = new Date();
             scheduledDate = new Date();
+
+            //update invoice delivered
+            invoice.setStatus(InvoiceStatus.DELIVERED);
+            invoiceRepository.save(invoice);
+
         } else {
             // Queue for Dispatch
             initialStatus = ShipmentStatus.PENDING; // Goes to "Todo List"
             // If user provided a specific date, use it, else default to today
             scheduledDate = dto.getScheduledDate();
-            shippedDate = new Date();
-            deliveredDate = new Date();
 
         }
 

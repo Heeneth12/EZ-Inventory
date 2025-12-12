@@ -50,10 +50,10 @@ public class Delivery extends CommonSerializable {
     @Column(name = "scheduled_date", nullable = false)
     private Date scheduledDate;
 
-    @Column(name = "shipped_date", nullable = false)
+    @Column(name = "shipped_date", nullable = true)
     private Date shippedDate;
 
-    @Column(name = "delivered _date", nullable = false)
+    @Column(name = "delivered _date", nullable = true)
     private Date deliveredDate;
 
     @Column(name = "delivery_address", length = 500)
