@@ -8,5 +8,6 @@ public enum PaymentStatus {
     PARTIALLY_ALLOCATED, // Some amount still unallocated
     CANCELLED,      // Payment cancelled
     REFUNDED,
-    COMPLETED
+    COMPLETED,
+    RECEIVED
 }

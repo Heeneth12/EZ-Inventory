@@ -8,6 +8,7 @@ import com.ezh.Inventory.sales.invoice.repository.InvoiceRepository;
 import com.ezh.Inventory.sales.payment.dto.*;
 import com.ezh.Inventory.sales.payment.entity.Payment;
 import com.ezh.Inventory.sales.payment.entity.PaymentAllocation;
+import com.ezh.Inventory.sales.payment.entity.PaymentMethod;
 import com.ezh.Inventory.sales.payment.entity.PaymentStatus;
 import com.ezh.Inventory.sales.payment.repository.PaymentAllocationRepository;
 import com.ezh.Inventory.sales.payment.repository.PaymentRepository;
@@ -164,6 +165,39 @@ public class PaymentServiceImpl implements PaymentService {
         Page<Payment> payments = paymentRepository.findByTenantId(tenantId, pageable);
 
         return payments.map(this::mapToDto);
+    }
+
+    @Override
+    @Transactional()
+    public CommonResponse createCreditNote(Contact customer, BigDecimal amount, String returnRefNumber) throws CommonException {
+        Long tenantId = UserContextUtil.getTenantIdOrThrow();
+
+        String creditNoteNumber = "CN-" + System.currentTimeMillis();
+
+        Payment creditNote = Payment.builder()
+                .tenantId(tenantId)
+                .paymentNumber(creditNoteNumber)
+                .customer(customer)
+                .paymentDate(new Date())
+                .amount(amount)
+                // Status is RECEIVED because the company technically "received" the value back
+                .status(PaymentStatus.RECEIVED)
+                .paymentMethod(PaymentMethod.CREDIT_NOTE)
+                .referenceNumber(returnRefNumber)
+                .remarks("Auto-generated Credit Note for Sales Return: " + returnRefNumber)
+                // CRITICAL: The money is fully available (Unallocated)
+                // This allows the user to apply this amount to other invoices later
+                .allocatedAmount(BigDecimal.ZERO)
+                .unallocatedAmount(amount)
+                .build();
+        // 3. Save and Return
+        paymentRepository.save(creditNote);
+
+        return CommonResponse
+                .builder()
+                .status(Status.SUCCESS)
+                .message("Successfully created credit note")
+                .build();
     }
 
 

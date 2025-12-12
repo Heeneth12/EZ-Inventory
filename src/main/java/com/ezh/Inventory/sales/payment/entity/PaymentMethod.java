@@ -9,5 +9,6 @@ public enum PaymentMethod {
     UPI,
     MOBILE_WALLET,
     NET_BANKING,
-    OTHER
+    OTHER,
+    CREDIT_NOTE
 }
