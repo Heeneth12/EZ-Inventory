@@ -14,7 +14,10 @@ import java.util.Optional;
 
 @Repository
 public interface DeliveryRepository extends JpaRepository<Delivery, Long> {
+
     Optional<Delivery> findByDeliveryNumber(String deliveryNumber);
+
+    Optional<Delivery> findByIdAndTenantId(Long id, Long tenantId);
 
     List<Delivery> findByInvoiceId(Long invoiceId);
 

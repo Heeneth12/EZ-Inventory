@@ -28,4 +28,6 @@ public interface DeliveryService {
     CommonResponse markAsShipped(Long deliveryId, String trackingNumber);
 
     CommonResponse markAsDelivered(Long deliveryId);
+
+    CommonResponse<?> updateDeliveryStatus(DeliveryFilterDto dto) throws CommonException;
 }

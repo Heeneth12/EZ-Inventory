@@ -37,7 +37,7 @@ public class Delivery extends CommonSerializable {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "type", nullable = false)
-    private ShipmentType type;   // PICKUP / COURIER / OWN_FLEET
+    private ShipmentType type;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)

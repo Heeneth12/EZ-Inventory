@@ -52,4 +52,11 @@ public class DeliveryController {
         return ResponseResource.success(HttpStatus.OK, response, "Deliveries fetched successfully based on search criteria");
     }
 
+    @PostMapping(value = "/update-status", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseResource<CommonResponse<?>> updateDeliveryStatus(@RequestBody DeliveryFilterDto request) throws CommonException {
+        log.info("Update invoices with filter: {}", request);
+        CommonResponse<?> response = deliveryService.updateDeliveryStatus(request);
+        return ResponseResource.success(HttpStatus.OK, response, "Delivery status updated successfully");
+    }
+
 }

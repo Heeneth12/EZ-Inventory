@@ -12,10 +12,13 @@ import com.ezh.Inventory.sales.invoice.dto.InvoiceCreateDto;
 import com.ezh.Inventory.sales.invoice.dto.InvoiceDto;
 import com.ezh.Inventory.sales.invoice.dto.InvoiceItemDto;
 import com.ezh.Inventory.sales.invoice.entity.Invoice;
+import com.ezh.Inventory.sales.invoice.entity.InvoiceDeliveryStatus;
 import com.ezh.Inventory.sales.invoice.entity.InvoiceStatus;
 import com.ezh.Inventory.sales.invoice.repository.InvoiceRepository;
 import com.ezh.Inventory.utils.UserContextUtil;
 import com.ezh.Inventory.utils.common.CommonResponse;
+import com.ezh.Inventory.utils.common.DocPrefix;
+import com.ezh.Inventory.utils.common.DocumentNumberUtil;
 import com.ezh.Inventory.utils.exception.CommonException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -51,9 +54,9 @@ public class DeliveryServiceImpl implements DeliveryService {
         if (type == null) type = ShipmentType.IN_HOUSE_DELIVERY; // Default
 
         ShipmentStatus initialStatus;
+        Date scheduledDate = null;
         Date shippedDate = null;
         Date deliveredDate = null;
-        Date scheduledDate = null;
 
         if (type == ShipmentType.CUSTOMER_PICKUP) {
             // Instant Handover
@@ -63,23 +66,24 @@ public class DeliveryServiceImpl implements DeliveryService {
             scheduledDate = new Date();
 
             //update invoice delivered
-            invoice.setStatus(InvoiceStatus.DELIVERED);
+            invoice.setStatus(InvoiceStatus.ISSUED);
+            invoice.setDeliveryStatus(InvoiceDeliveryStatus.DELIVERED);
             invoiceRepository.save(invoice);
 
         } else {
             // Queue for Dispatch
-            initialStatus = ShipmentStatus.PENDING; // Goes to "Todo List"
+            initialStatus = ShipmentStatus.SCHEDULED; // Goes to "Todo List"
             // If user provided a specific date, use it, else default to today
             scheduledDate = dto.getScheduledDate();
-            deliveredDate = new Date();
-            scheduledDate = new Date();
+            //deliveredDate = new Date();
+            //scheduledDate = new Date();
 
         }
 
         // 2. Create Header
         Delivery delivery = Delivery.builder()
                 .tenantId(tenantId)
-                .deliveryNumber("DEL-" + System.currentTimeMillis())
+                .deliveryNumber(DocumentNumberUtil.generate(DocPrefix.DEL))
                 .invoice(invoice)
                 .customer(invoice.getCustomer())
                 .type(type)
@@ -130,9 +134,18 @@ public class DeliveryServiceImpl implements DeliveryService {
 
     @Override
     @Transactional
-    public CommonResponse markAsDelivered(Long deliveryId) {
+    public CommonResponse<?> markAsDelivered(Long deliveryId) {
+
+        Long tenantId = UserContextUtil.getTenantIdOrThrow();
+
         Delivery delivery = deliveryRepository.findById(deliveryId)
                 .orElseThrow(() -> new RuntimeException("Delivery not found"));
+
+        Invoice invoice = invoiceRepository.findByIdAndTenantId(delivery.getInvoice().getId(), tenantId)
+                        .orElseThrow(() -> new CommonException("Invoice not found", HttpStatus.NOT_FOUND));
+
+        invoice.setDeliveryStatus(InvoiceDeliveryStatus.DELIVERED);
+        invoiceRepository.save(invoice);
 
         delivery.setStatus(ShipmentStatus.DELIVERED);
         delivery.setDeliveredDate(new Date());
@@ -143,7 +156,7 @@ public class DeliveryServiceImpl implements DeliveryService {
 
     @Override
     @Transactional
-    public CommonResponse createDeliveryFromInvoice(Long invoiceId) throws CommonException {
+    public CommonResponse<?> createDeliveryFromInvoice(Long invoiceId) throws CommonException {
 
         Invoice invoice = invoiceRepository.findById(invoiceId)
                 .orElseThrow(() -> new CommonException("Invoice not found", HttpStatus.NOT_FOUND));
@@ -163,7 +176,7 @@ public class DeliveryServiceImpl implements DeliveryService {
 
     @Override
     @Transactional
-    public CommonResponse updateDeliveryStatus(Long deliveryId, ShipmentStatus newStatus) throws CommonException {
+    public CommonResponse<?> updateDeliveryStatus(Long deliveryId, ShipmentStatus newStatus) throws CommonException {
 
 
         return CommonResponse
@@ -198,6 +211,53 @@ public class DeliveryServiceImpl implements DeliveryService {
         return deliveryPage.map(this::mapToDto);
     }
 
+    @Override
+    @Transactional
+    public CommonResponse<?> updateDeliveryStatus(DeliveryFilterDto dto) throws CommonException {
+
+        Long tenantId = UserContextUtil.getTenantIdOrThrow();
+
+        Delivery delivery = deliveryRepository
+                .findByIdAndTenantId(dto.getId(), tenantId)
+                .orElseThrow(() -> new CommonException("Delivery not found", HttpStatus.NOT_FOUND));
+
+        Invoice invoice = invoiceRepository.findById(delivery.getInvoice().getId())
+                .orElseThrow(() -> new CommonException("", HttpStatus.NOT_FOUND));
+
+        ShipmentStatus currentStatus = delivery.getStatus();
+        ShipmentStatus newStatus = dto.getStatus();
+
+        //Same status → no update
+        if (currentStatus == newStatus) {
+            return CommonResponse.builder()
+                    .message("Status already updated")
+                    .build();
+        }
+
+        //Validate transition
+        if (!isValidTransition(currentStatus, newStatus)) {
+            throw new CommonException(
+                    "Invalid status transition from " + currentStatus + " to " + newStatus,
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+
+        if(newStatus.equals(ShipmentStatus.SHIPPED)){
+            delivery.setShippedDate(new Date());
+        }
+
+        if(newStatus.equals(ShipmentStatus.DELIVERED)){
+            delivery.setDeliveredDate(new Date());
+            invoice.setDeliveryStatus(InvoiceDeliveryStatus.DELIVERED);
+        }
+
+        delivery.setStatus(newStatus);
+        deliveryRepository.save(delivery);
+
+        return CommonResponse.builder()
+                .message("Delivery status updated successfully")
+                .build();
+    }
 
     @Override
     @Transactional(readOnly = true)
@@ -220,6 +280,25 @@ public class DeliveryServiceImpl implements DeliveryService {
 
         return deliveries.stream().map(this::mapToDto).toList();
 
+    }
+
+    private boolean isValidTransition(ShipmentStatus current, ShipmentStatus next) {
+
+        switch (current) {
+            case PENDING:
+                return next == ShipmentStatus.SCHEDULED || next == ShipmentStatus.CANCELLED;
+
+            case SCHEDULED:
+                return next == ShipmentStatus.SHIPPED || next == ShipmentStatus.CANCELLED;
+
+            case SHIPPED:
+                return next == ShipmentStatus.DELIVERED;
+
+            case DELIVERED:
+            case CANCELLED:
+                return false; // final states
+        }
+        return false;
     }
 
 
