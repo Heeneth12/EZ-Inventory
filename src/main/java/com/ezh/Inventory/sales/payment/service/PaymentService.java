@@ -23,4 +23,6 @@ public interface PaymentService {
     Page<PaymentDto> getAllPayments(Integer page, Integer size) throws CommonException;
 
     CommonResponse createCreditNote(Contact customer, BigDecimal amount, String returnRefNumber) throws CommonException;
+
+    PaymentDto getAllPayments(Long PaymentId) throws CommonException;
 }

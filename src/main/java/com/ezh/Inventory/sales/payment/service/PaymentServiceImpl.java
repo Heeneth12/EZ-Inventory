@@ -2,6 +2,7 @@ package com.ezh.Inventory.sales.payment.service;
 
 import com.ezh.Inventory.contacts.entiry.Contact;
 import com.ezh.Inventory.contacts.repository.ContactRepository;
+import com.ezh.Inventory.sales.invoice.dto.InvoiceMiniDto;
 import com.ezh.Inventory.sales.invoice.entity.Invoice;
 import com.ezh.Inventory.sales.invoice.entity.InvoicePaymentStatus;
 import com.ezh.Inventory.sales.invoice.repository.InvoiceRepository;
@@ -164,7 +165,20 @@ public class PaymentServiceImpl implements PaymentService {
 
         Page<Payment> payments = paymentRepository.findByTenantId(tenantId, pageable);
 
-        return payments.map(this::mapToDto);
+        return payments.map( p -> mapToDto(p, false));
+    }
+
+
+    @Override
+    @Transactional(readOnly = true)
+    public PaymentDto getAllPayments(Long PaymentId) throws CommonException {
+        Long tenantId = UserContextUtil.getTenantIdOrThrow();
+
+        Payment payment = paymentRepository.findByIdAndTenantId(PaymentId,tenantId)
+                .orElseThrow(() -> new CommonException("", HttpStatus.NOT_FOUND));
+
+
+        return mapToDto(payment, true);
     }
 
     @Override
@@ -257,8 +271,31 @@ public class PaymentServiceImpl implements PaymentService {
         invoiceRepository.save(invoice);
     }
 
-    private PaymentDto mapToDto(Payment payment) {
+    private PaymentDto mapToDto(Payment payment, Boolean subDetails) {
         if (payment == null) return null;
+
+        // 1. Map the allocations to the
+        List<InvoiceMiniDto> invoiceDetails = new ArrayList<>();
+
+        if (payment.getAllocations() != null && subDetails) {
+            invoiceDetails = payment.getAllocations().stream()
+                    .map(allocation -> {
+                        // Get the invoice entity from the allocation
+                        var invoice = allocation.getInvoice();
+                        return InvoiceMiniDto.builder()
+                                .id(invoice.getId())
+                                .invoiceNumber(invoice.getInvoiceNumber())
+                                .invoiceDate(invoice.getInvoiceDate())
+                                .amountPaid(allocation.getAllocatedAmount())
+                                .grandTotal(invoice.getGrandTotal())
+                                .balance(invoice.getBalance())
+                                .status(invoice.getStatus())
+                                .paymentStatus(invoice.getPaymentStatus())
+                                .customerId(invoice.getCustomer().getId())
+                                .build();
+                    })
+                    .collect(Collectors.toList());
+        }
 
         return PaymentDto.builder()
                 .id(payment.getId())
@@ -273,6 +310,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .referenceNumber(payment.getReferenceNumber())
                 .bankName(payment.getBankName())
                 .remarks(payment.getRemarks())
+                .invoices(invoiceDetails)
                 .allocatedAmount(payment.getAllocatedAmount())
                 .unallocatedAmount(payment.getUnallocatedAmount())
                 .build();

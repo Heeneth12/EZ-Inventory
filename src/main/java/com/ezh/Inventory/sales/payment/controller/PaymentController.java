@@ -27,21 +27,21 @@ public class PaymentController {
     private final PaymentService paymentService;
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseResource<CommonResponse> recordPayment(@RequestBody PaymentCreateDto paymentCreateDto) throws CommonException {
+    public ResponseResource<CommonResponse<?>> recordPayment(@RequestBody PaymentCreateDto paymentCreateDto) throws CommonException {
         log.info("Entering recordPayment with : {}", paymentCreateDto);
-        CommonResponse response = paymentService.recordPayment(paymentCreateDto);
+        CommonResponse<?> response = paymentService.recordPayment(paymentCreateDto);
         return ResponseResource.success(HttpStatus.CREATED, response, "Payment recorded successfully");
     }
 
     @PostMapping(value = "/all", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseResource<Page<PaymentDto>> getAllPayments(@RequestParam(defaultValue = "0") Integer page,
-            @RequestParam(defaultValue = "10") Integer size) throws CommonException {
+                                                             @RequestParam(defaultValue = "10") Integer size) throws CommonException {
         log.info("Fetching payments page: {}, size: {}", page, size);
         Page<PaymentDto> response = paymentService.getAllPayments(page, size);
         return ResponseResource.success(HttpStatus.OK, response, "Payments fetched successfully");
     }
 
-    @GetMapping(value = "/{invoiceId}/summary", produces = MediaType.APPLICATION_JSON_VALUE)
+    @GetMapping(value = "/invoice/{invoiceId}/summary", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseResource<InvoicePaymentSummaryDto> getPaymentSummary(@PathVariable Long invoiceId) throws CommonException {
         log.info("Entering getPaymentSummary with : {}", invoiceId);
         InvoicePaymentSummaryDto response = paymentService.getInvoicePaymentSummary(invoiceId);
@@ -52,6 +52,13 @@ public class PaymentController {
     public ResponseResource<List<InvoicePaymentHistoryDto>> getPaymentDetails(@PathVariable Long invoiceId) throws CommonException {
         log.info("Entering getPaymentDetails with ID : {}", invoiceId);
         List<InvoicePaymentHistoryDto> response = paymentService.getPaymentsByInvoiceId(invoiceId);
+        return ResponseResource.success(HttpStatus.CREATED, response, "Payment recorded successfully");
+    }
+
+    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseResource<PaymentDto> getPaymentDetailById(@RequestParam Long paymentId) throws CommonException {
+        log.info("Entering getPaymentDetailById with ID : {}", paymentId);
+        PaymentDto response = paymentService.getAllPayments(paymentId);
         return ResponseResource.success(HttpStatus.CREATED, response, "Payment recorded successfully");
     }
 }

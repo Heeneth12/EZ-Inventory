@@ -9,5 +9,6 @@ public enum DocPrefix {
     PAY,  // Payment
     CN,   // Credit Note
     VEN,  // Vendor
-    CUS   // Customer
+    CUS,  // Customer
+    ADJ,  // Adjustment
 }

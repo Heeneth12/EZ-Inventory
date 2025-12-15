@@ -24,9 +24,9 @@ public class StockController {
     private final StockService stockService;
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseResource<CommonResponse> stockUpdate(@RequestBody StockUpdateDto stockUpdateDto) throws CommonException {
+    public ResponseResource<CommonResponse<?>> stockUpdate(@RequestBody StockUpdateDto stockUpdateDto) throws CommonException {
         log.info("Entered Stock Update with : {}", stockUpdateDto);
-        CommonResponse response = stockService.updateStock(stockUpdateDto);
+        CommonResponse<?> response = stockService.updateStock(stockUpdateDto);
         return ResponseResource.success(HttpStatus.CREATED, response, "Stock updated successfully");
     }
 
@@ -38,7 +38,7 @@ public class StockController {
         return ResponseResource.success(HttpStatus.OK, response, "Stock fetched successfully");
     }
 
-    @PostMapping(value = "/search", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @GetMapping(value = "/search", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseResource<List<ItemStockSearchDto>> SearchStock(@RequestParam String query, @RequestParam Long warehouseId) throws CommonException {
         log.info("Entered search stock with : {}", query);
         List<ItemStockSearchDto> response = stockService.searchItemsWithBatches(query, warehouseId);
@@ -54,10 +54,24 @@ public class StockController {
     }
 
     @PostMapping(path = "/adjustment", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseResource<CommonResponse> createStockAdjustment(@RequestBody StockAdjustmentBatchDto  stockAdjustmentBatchDto) throws CommonException {
+    public ResponseResource<CommonResponse<?>> createStockAdjustment(@RequestBody StockAdjustmentCreateDto stockAdjustmentBatchDto) throws CommonException {
         log.info("Entered Create Stock Adjustment with {}", stockAdjustmentBatchDto);
-        CommonResponse response = stockService.createStockAdjustment(stockAdjustmentBatchDto);
+        CommonResponse<?> response = stockService.createStockAdjustment(stockAdjustmentBatchDto);
         return ResponseResource.success(HttpStatus.CREATED, response, "Stock adjustment successfully");
     }
 
+    @PostMapping(path = "/adjustment/all", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseResource<Page<StockAdjustmentListDto>> getStockAdjustments(@RequestParam Integer page, @RequestParam Integer size,
+                                                                              @RequestBody StockFilterDto filter) throws CommonException {
+        log.info("Entered get getStockAdjustments with {}", filter);
+        Page<StockAdjustmentListDto> response = stockService.getAllStockAdjustments(filter, page, size);
+        return ResponseResource.success(HttpStatus.OK, response, "");
+    }
+
+    @GetMapping(path = "/adjustment/{adjustmentId}", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseResource<StockAdjustmentDetailDto> getStockAdjustmentById(@PathVariable Long adjustmentId) throws CommonException {
+        log.info("Entered get getStockAdjustmentById with {}", adjustmentId);
+        StockAdjustmentDetailDto response = stockService.getStockAdjustmentById(adjustmentId);
+        return ResponseResource.success(HttpStatus.OK, response, "fetched stock adjustment");
+    }
 }

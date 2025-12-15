@@ -14,10 +14,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @Slf4j
 @RestController
 @RequestMapping("/v1/contact")
-@CrossOrigin(origins = "*")
 @AllArgsConstructor
 public class ContactsController {
 
@@ -103,5 +104,12 @@ public class ContactsController {
         log.info("Toggling status of Contact {} to {}", id, active);
         CommonResponse response = contactService.toggleStatus(id, active);
         return ResponseResource.success(HttpStatus.OK, response, "Status updated successfully");
+    }
+
+    @PostMapping(value = "/search", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseResource<List<ContactDto>> searchContacts(@RequestBody ContactFilter contactFilter) throws CommonException {
+        log.info("Fetching all contacts with filter {}", contactFilter);
+        List<ContactDto> response = contactService.searchContact(contactFilter);
+        return ResponseResource.success(HttpStatus.OK, response, "Contacts fetched successfully");
     }
 }

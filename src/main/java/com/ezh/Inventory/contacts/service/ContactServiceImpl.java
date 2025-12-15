@@ -6,6 +6,7 @@ import com.ezh.Inventory.contacts.dto.ContactFilter;
 import com.ezh.Inventory.contacts.entiry.Address;
 import com.ezh.Inventory.contacts.entiry.Contact;
 import com.ezh.Inventory.contacts.repository.ContactRepository;
+import com.ezh.Inventory.utils.UserContextUtil;
 import com.ezh.Inventory.utils.common.CommonResponse;
 import com.ezh.Inventory.utils.common.Status;
 import com.ezh.Inventory.utils.exception.BadRequestException;
@@ -117,6 +118,32 @@ public class ContactServiceImpl implements ContactService {
                 .status(Status.SUCCESS)
                 .id(String.valueOf(contact.getId()))
                 .build();
+    }
+
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ContactDto> searchContact(ContactFilter contactFilter) throws CommonException {
+
+        log.info("Searching contacts without pagination");
+
+        Pageable pageable = Pageable.unpaged();
+
+        Page<Contact> contacts = repository.searchContacts(
+                contactFilter.getSearchQuery(),
+                contactFilter.getName(),
+                contactFilter.getEmail(),
+                contactFilter.getPhone(),
+                contactFilter.getGstNumber(),
+                contactFilter.getType(),
+                contactFilter.getActive(),
+                pageable
+        );
+
+        return contacts.getContent()
+                .stream()
+                .map(this::convertToDTO)
+                .toList();
     }
 
 

@@ -8,14 +8,18 @@ import com.ezh.Inventory.stock.repository.StockBatchRepository;
 import com.ezh.Inventory.stock.repository.StockLedgerRepository;
 import com.ezh.Inventory.stock.repository.StockRepository;
 import com.ezh.Inventory.utils.common.CommonResponse;
+import com.ezh.Inventory.utils.common.DocPrefix;
+import com.ezh.Inventory.utils.common.DocumentNumberUtil;
 import com.ezh.Inventory.utils.common.Status;
 import com.ezh.Inventory.utils.exception.BadRequestException;
 import com.ezh.Inventory.utils.exception.CommonException;
+import com.ezh.Inventory.utils.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -176,78 +181,164 @@ public class StockServiceImpl implements StockService {
 
     @Override
     @Transactional
-    public CommonResponse createStockAdjustment(StockAdjustmentBatchDto batchDto) throws CommonException {
+    public CommonResponse<?> createStockAdjustment(StockAdjustmentCreateDto dto) throws CommonException {
         Long tenantId = getTenantIdOrThrow();
-        Long warehouseId = batchDto.getWarehouseId();
-        AdjustmentMode batchMode = batchDto.getMode();
 
-        for (StockAdjustmentItemDto itemDto : batchDto.getItems()) {
+        // 1. Create and SAVE the Header first
+        // REMOVED: .mode(dto.getMode()) -> We now rely purely on ReasonType
+        StockAdjustment adjustment = StockAdjustment.builder()
+                .tenantId(tenantId)
+                .warehouseId(dto.getWarehouseId())
+                .adjustmentNumber(DocumentNumberUtil.generate(DocPrefix.ADJ))
+                .adjustmentDate(new Date())
+                .status(AdjustmentStatus.COMPLETED)
+                .reference(dto.getReference())
+                .remarks(dto.getRemarks())
+                .reasonType(dto.getReasonType())
+                .build();
 
-            // 1. Get Stock
+        adjustment = stockAdjustmentRepository.save(adjustment);
+
+        List<StockAdjustmentItem> adjustmentItems = new ArrayList<>();
+
+        // 2. Process Each Line Item
+        for (StockAdjustmentItemDto itemDto : dto.getItems()) {
+
+            // A. Fetch Current Stock State
             Stock stock = stockRepository
-                    .findByItemIdAndWarehouseIdAndTenantId(itemDto.getItemId(), warehouseId, tenantId)
-                    .orElse(createNewStock(itemDto.getItemId(), warehouseId));
+                    .findByItemIdAndWarehouseIdAndTenantId(itemDto.getItemId(), dto.getWarehouseId(), tenantId)
+                    .orElse(createNewStock(itemDto.getItemId(), dto.getWarehouseId()));
 
             int systemQty = stock.getClosingQty();
-            int finalCountedQty;
-            int difference;
+            int finalCountedQty; // The actual physical stock after adjustment
+            int difference;      // The change amount (can be negative or positive)
 
-            // 2. Logic based on Mode
-            switch (batchMode) {
-                case REMOVE:
+            // B. Calculate Logic based on REASON TYPE only
+            switch (dto.getReasonType()) {
+                case DAMAGE:
+                case EXPIRED:
+                case LOST:
+                    // Logic: REMOVE specific quantity
+                    // Example: System 100, Input 5 (Damaged) -> Final 95, Diff -5
                     difference = -itemDto.getQuantity();
                     finalCountedQty = systemQty - itemDto.getQuantity();
                     break;
-                case ADD:
+
+                case FOUND_EXTRA:
+                    // Logic: ADD specific quantity
+                    // Example: System 100, Input 2 (Found) -> Final 102, Diff +2
                     difference = itemDto.getQuantity();
                     finalCountedQty = systemQty + itemDto.getQuantity();
                     break;
-                case ABSOLUTE:
-                default:
+
+                case AUDIT_CORRECTION:
+                    // Logic: ABSOLUTE / REPLACE (Set to actual count)
+                    // Example: System 100, Input 90 (Actual Count) -> Final 90, Diff -10
                     finalCountedQty = itemDto.getQuantity();
                     difference = finalCountedQty - systemQty;
                     break;
+
+                default:
+                    throw new BadRequestException("Unsupported Adjustment Reason: " + dto.getReasonType());
             }
 
             if (finalCountedQty < 0) {
-                throw new BadRequestException("Adjustment would result in negative stock for Item ID: " + itemDto.getItemId());
+                throw new BadRequestException("Adjustment results in negative stock for Item ID: " + itemDto.getItemId());
             }
 
-            if (difference == 0) continue;
-
-            // 3. Save Adjustment
-            StockAdjustment adjustment = StockAdjustment.builder()
+            // C. Create the Line Item Entity
+            StockAdjustmentItem lineItem = StockAdjustmentItem.builder()
+                    .stockAdjustment(adjustment)
                     .itemId(itemDto.getItemId())
-                    .tenantId(tenantId)
-                    .warehouseId(warehouseId)
-                    .reasonType(itemDto.getAdjustmentType())
-                    .notes(batchDto.getNotes())
                     .systemQty(systemQty)
                     .countedQty(finalCountedQty)
                     .differenceQty(difference)
-                    .adjustedBy(1L)
-                    .adjustedAt(System.currentTimeMillis())
+                    .reasonType(dto.getReasonType())
                     .build();
 
-            stockAdjustmentRepository.save(adjustment);
+            adjustmentItems.add(lineItem);
 
-            // 4. Update Stock
-            MovementType movementType = (difference > 0) ? MovementType.IN : MovementType.OUT;
+            // D. UPDATE ACTUAL INVENTORY
+            if (difference != 0) {
+                MovementType movementType = (difference > 0) ? MovementType.IN : MovementType.OUT;
 
-            StockUpdateDto updateDto = StockUpdateDto.builder()
-                    .itemId(itemDto.getItemId())
-                    .warehouseId(warehouseId)
-                    .quantity(Math.abs(difference))
-                    .transactionType(movementType)
-                    .referenceType(ReferenceType.ADJUSTMENT)
-                    .referenceId(adjustment.getId())
-                    .unitPrice(stock.getAverageCost())
-                    .batchNumber(itemDto.getBatchNumber())
-                    .build();
+                StockUpdateDto updateDto = StockUpdateDto.builder()
+                        .itemId(itemDto.getItemId())
+                        .warehouseId(dto.getWarehouseId())
+                        .quantity(Math.abs(difference)) // Use absolute value for update service
+                        .transactionType(movementType)
+                        .referenceType(ReferenceType.ADJUSTMENT)
+                        .referenceId(adjustment.getId())
+                        .unitPrice(stock.getAverageCost())
+                        .batchNumber(itemDto.getBatchNumber())
+                        .build();
 
-            updateStock(updateDto);
+                // Assuming your stockService handles the math based on IN/OUT
+                updateStock(updateDto);
+            }
         }
-        return CommonResponse.builder().message("Batch processed").build();
+
+        // 3. Update the Header with the list of items
+        adjustment.setAdjustmentItems(adjustmentItems);
+        stockAdjustmentRepository.save(adjustment);
+
+        return CommonResponse.builder()
+                .status(Status.SUCCESS)
+                .message("Stock Adjustment Created Successfully")
+                .id(String.valueOf(adjustment.getId()))
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<StockAdjustmentListDto> getAllStockAdjustments(StockFilterDto filter, Integer page, Integer size) {
+        Long tenantId = getTenantIdOrThrow();
+        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+
+        // Assuming you have a basic findAll or specification
+        Page<StockAdjustment> adjustments = stockAdjustmentRepository.findAllByTenantId(getTenantIdOrThrow(), pageable);
+
+        return adjustments.map(adj -> StockAdjustmentListDto.builder()
+                .id(adj.getId())
+                .adjustmentNumber(adj.getAdjustmentNumber())
+                .adjustmentDate(adj.getAdjustmentDate())
+                .status(adj.getStatus())
+                .warehouseId(adj.getWarehouseId())
+                .reference(adj.getReference())
+                .totalItems(adj.getAdjustmentItems().size())
+                .build());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public StockAdjustmentDetailDto getStockAdjustmentById(Long id) {
+        StockAdjustment adjustment = stockAdjustmentRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Adjustment not found"));
+
+        // Map Items
+        List<ItemDetail> itemDetails = adjustment.getAdjustmentItems().stream()
+                .map(item -> {
+                    String itemName = itemRepository.findNameById(item.getItemId()).orElse("Unknown Item");
+                    return ItemDetail.builder()
+                            .itemId(item.getItemId())
+                            .itemName(itemName)
+                            .systemQty(item.getSystemQty())
+                            .countedQty(item.getCountedQty())
+                            .differenceQty(item.getDifferenceQty())
+                            .reasonType(item.getReasonType())
+                            .build();
+                }).collect(Collectors.toList());
+
+        return StockAdjustmentDetailDto.builder()
+                .id(adjustment.getId())
+                .adjustmentNumber(adjustment.getAdjustmentNumber())
+                .adjustmentDate(adjustment.getAdjustmentDate())
+                .status(adjustment.getStatus())
+                .warehouseId(adjustment.getWarehouseId())
+                .remarks(adjustment.getRemarks())
+                .reference(adjustment.getReference())
+                .items(itemDetails)
+                .build();
     }
 
     @Override
@@ -367,7 +458,6 @@ public class StockServiceImpl implements StockService {
             throw new BadRequestException("Data Inconsistency: Global stock says available, but Batches are empty.");
         }
 
-        // Return "Batch-001" or "Batch-001,Batch-002"
         return String.join(",", usedBatchNumbers);
     }
 }

@@ -1,11 +1,13 @@
 package com.ezh.Inventory.sales.payment.dto;
 
+import com.ezh.Inventory.sales.invoice.dto.InvoiceMiniDto;
 import com.ezh.Inventory.sales.payment.entity.PaymentMethod;
 import com.ezh.Inventory.sales.payment.entity.PaymentStatus;
 import lombok.*;
 
 import java.math.BigDecimal;
 import java.util.Date;
+import java.util.List;
 
 @Getter
 @Setter
@@ -25,6 +27,7 @@ public class PaymentDto {
     private String referenceNumber;
     private String bankName;
     private String remarks;
+    private List<InvoiceMiniDto> invoices;
     private BigDecimal allocatedAmount = BigDecimal.ZERO;
     private BigDecimal unallocatedAmount = BigDecimal.ZERO;
 }
