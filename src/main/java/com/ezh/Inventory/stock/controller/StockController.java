@@ -74,4 +74,11 @@ public class StockController {
         StockAdjustmentDetailDto response = stockService.getStockAdjustmentById(adjustmentId);
         return ResponseResource.success(HttpStatus.OK, response, "fetched stock adjustment");
     }
+
+    @GetMapping(path = "/summary/{warehouseId}", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseResource<StockDashboardDto> getStockDashboard(@PathVariable Long warehouseId) throws CommonException {
+        log.info("Entered get getStockDashboard with {}", warehouseId);
+        StockDashboardDto response = stockService.getStockDashboard(warehouseId);
+        return ResponseResource.success(HttpStatus.OK, response, "fetched Stock Dashboard stats");
+    }
 }

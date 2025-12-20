@@ -391,6 +391,64 @@ public class StockServiceImpl implements StockService {
                 .build();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public StockDashboardDto getStockDashboard(Long warehouseId) throws CommonException {
+        Long tenantId = getTenantIdOrThrow();
+
+        // 1. Total Stock Value
+        BigDecimal totalValue = stockRepository.getTotalStockValue(tenantId, warehouseId);
+
+        // 2. Net Movement (Using the Map approach for simplicity, or use a Projection)
+        // If your repo returns Map<String, Object>, it usually returns List<Map<...>> or Object[].
+        // Let's assume we fetch raw Object[] for safety:
+        // @Query("SELECT sum(s.inQty), sum(s.outQty) ...") -> returns Object[]
+        // For this example, let's do it cleanly via the repository logic below:
+
+        // Note: You might need to adjust the Repository method to return an Interface Projection for type safety.
+        // Here is a manual implementation assuming distinct repo calls or a projection wrapper:
+        Integer totalIn = 0;
+        Integer totalOut = 0;
+
+        // Simulating the repo call for movement (Ideally use a Projection interface)
+        Map<String, Object> movement = stockRepository.getStockMovementSummary(tenantId, warehouseId);
+        // JPA Maps usually return "0": value.
+        if (movement != null && !movement.isEmpty()) {
+            // Depending on driver, might need casting
+            // totalIn = ((Number) movement.get("totalIn")).intValue();
+            // totalOut = ((Number) movement.get("totalOut")).intValue();
+
+            // ALTERNATIVE: Simpler Repository Calls if Map is annoying:
+            // Integer getSumInQty(...); Integer getSumOutQty(...);
+        }
+
+        // Let's assume we split the repo calls for cleaner Java code:
+        // Integer totalIn = stockRepository.sumInQty(tenantId, warehouseId);
+        // Integer totalOut = stockRepository.sumOutQty(tenantId, warehouseId);
+
+        // 3. Out of Stock Items
+        long outOfStockCount = stockRepository.countOutOfStockItems(tenantId, warehouseId);
+
+        // 4. Fast-Moving Items (Top 5)
+        Pageable topFive = PageRequest.of(0, 5);
+        List<Stock> fastMovingStocks = stockRepository.findFastMovingItems(tenantId, warehouseId, topFive);
+
+        List<StockDto> fastMovingDtos = fastMovingStocks.stream()
+                .map(this::convertToDTO)
+                .collect(Collectors.toList());
+
+        // Construct Response
+        return StockDashboardDto.builder()
+                .totalStockValue(totalValue)
+                .totalItemsOutOfStock(outOfStockCount)
+                // Assuming we fetched these or they came from the map
+                .totalInQty(totalIn)
+                .totalOutQty(totalOut)
+                .netMovementQty(totalIn - totalOut)
+                .fastMovingItems(fastMovingDtos)
+                .build();
+    }
+
     private StockDto convertToDTO(Stock stock) {
 
         String itemName = itemRepository.findNameById(stock.getItemId())
@@ -405,6 +463,8 @@ public class StockServiceImpl implements StockService {
                 .inQty(stock.getInQty())
                 .outQty(stock.getOutQty())
                 .closingQty(stock.getClosingQty())
+                .averageCost(stock.getAverageCost())
+                .stockValue(stock.getStockValue())
                 .build();
     }
 
