@@ -27,6 +27,7 @@ public class DeliveryDto {
     private ShipmentType type;   // PICKUP / COURIER / OWN_FLEET
     private ShipmentStatus status; // PENDING, SCHEDULED, SHIPPED, DELIVERED
     private EmployeeDto deliveryPerson;
+    private String remarks;
     private Date scheduledDate;
     private Date shippedDate;
     private Date deliveredDate;
