@@ -28,4 +28,6 @@ public interface PaymentService {
     CommonResponse<?> refundUnallocatedAmount(Long paymentId, BigDecimal refundAmount) throws CommonException;
 
     CustomerFinancialSummaryDto getCustomerFinancialSummary(Long customerId) throws CommonException;
+
+    CommonResponse<?> addMoneyToWallet(WalletAddDto dto) throws CommonException;
 }

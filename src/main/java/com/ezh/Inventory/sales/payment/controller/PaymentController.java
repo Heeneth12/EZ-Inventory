@@ -86,6 +86,13 @@ public class PaymentController {
         return ResponseResource.success(HttpStatus.OK, response, "Wallet balance applied successfully");
     }
 
+    @PostMapping(value = "/wallet/add", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseResource<CommonResponse<?>> addMoneyToWallet(@RequestBody WalletAddDto walletAddDto) throws CommonException {
+        log.info("Adding money to wallet for customer: {}", walletAddDto.getCustomerId());
+        CommonResponse<?> response = paymentService.addMoneyToWallet(walletAddDto);
+        return ResponseResource.success(HttpStatus.CREATED, response, "Money added to wallet successfully");
+    }
+
     /**
      * Generate and Download Payment PDF
      */

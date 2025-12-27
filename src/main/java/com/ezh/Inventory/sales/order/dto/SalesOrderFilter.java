@@ -1,9 +1,8 @@
 package com.ezh.Inventory.sales.order.dto;
 
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import lombok.*;
+
+import java.util.Date;
 
 @Getter
 @Setter
@@ -11,7 +10,10 @@ import lombok.Setter;
 @NoArgsConstructor
 public class SalesOrderFilter {
     private Long id;
+    private String searchQuery;
     private String status;
     private Long customerId;
     private Long warehouseId;
+    private Date fromDate;
+    private Date toDate;
 }
