@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 
@@ -46,6 +47,13 @@ public interface SalesOrderRepository extends JpaRepository<SalesOrder, Long> {
                       AND (:status IS NULL OR so.status = :status)
                       AND (:customerId IS NULL OR so.customer_id = :customerId)
                       AND (:warehouseId IS NULL OR so.warehouse_id = :warehouseId)
+                      AND (
+                            (:fromDate IS NULL AND :toDate IS NULL)
+                            OR (so.order_date BETWEEN :fromDate AND :toDate)
+                           )
+                      AND (:searchQuery IS NULL
+                           OR LOWER(so.order_number) LIKE LOWER(CONCAT('%', :searchQuery, '%'))
+                           OR LOWER(so.remarks) LIKE LOWER(CONCAT('%', :searchQuery, '%')))
                     """,
             nativeQuery = true
     )
@@ -55,6 +63,9 @@ public interface SalesOrderRepository extends JpaRepository<SalesOrder, Long> {
             @Param("status") String status,
             @Param("customerId") Long customerId,
             @Param("warehouseId") Long warehouseId,
+            @Param("searchQuery") String searchQuery,
+            @Param("fromDate") Date fromDate,
+            @Param("toDate") Date toDate,
             Pageable pageable
     );
 

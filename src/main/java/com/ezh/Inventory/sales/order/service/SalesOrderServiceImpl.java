@@ -179,7 +179,8 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         // You can add Specification/Filter logic here based on 'SalesOrderFilter'
         Page<SalesOrder> result = salesOrderRepository.getAllSalesOrders(
                 tenantId, filter.getId(), filter.getStatus(), filter.getCustomerId(),
-                filter.getWarehouseId(), pageable); // Replace with findByTenantId logic if repository supports it
+                filter.getWarehouseId(), filter.getSearchQuery(), filter.getFromDate(),
+                filter.getToDate(), pageable); // Replace with findByTenantId logic if repository supports it
 
         return result.map(this::mapToDto);
     }

@@ -169,11 +169,21 @@ public class InvoiceServiceImpl implements InvoiceService {
     @Transactional(readOnly = true)
     public Page<InvoiceDto> getAllInvoices(InvoiceFilter filter, Integer page, Integer size) {
         Long tenantId = UserContextUtil.getTenantIdOrThrow();
+
         Pageable pageable = PageRequest.of(page, size);
 
         Page<Invoice> invoices = invoiceRepository.getAllInvoices(
-                tenantId, filter.getId(), filter.getSalesOrderId(), filter.getStatus(),
-                filter.getCustomerId(), filter.getWarehouseId(), pageable);
+                tenantId,
+                filter.getId(),
+                filter.getSalesOrderId(),
+                filter.getStatus(),
+                filter.getCustomerId(),
+                filter.getWarehouseId(),
+                filter.getSearchQuery(),
+                filter.getFromDate(),
+                filter.getToDate(),
+                pageable
+        );
 
         return invoices.map(this::mapToDto);
     }
