@@ -1,14 +1,11 @@
 package com.ezh.Inventory.sales.delivery.service;
 
 import com.ezh.Inventory.contacts.dto.ContactMiniDto;
-import com.ezh.Inventory.sales.delivery.dto.DeliveryDto;
-import com.ezh.Inventory.sales.delivery.dto.DeliveryFilterDto;
-import com.ezh.Inventory.sales.delivery.entity.Delivery;
-import com.ezh.Inventory.sales.delivery.entity.DeliveryItem;
-import com.ezh.Inventory.sales.delivery.entity.ShipmentStatus;
-import com.ezh.Inventory.sales.delivery.entity.ShipmentType;
+import com.ezh.Inventory.sales.delivery.dto.*;
+import com.ezh.Inventory.sales.delivery.entity.*;
 import com.ezh.Inventory.sales.delivery.repository.DeliveryItemRepository;
 import com.ezh.Inventory.sales.delivery.repository.DeliveryRepository;
+import com.ezh.Inventory.sales.delivery.repository.RouteRepository;
 import com.ezh.Inventory.sales.invoice.dto.InvoiceCreateDto;
 import com.ezh.Inventory.sales.invoice.dto.InvoiceDto;
 import com.ezh.Inventory.sales.invoice.dto.InvoiceItemDto;
@@ -20,6 +17,7 @@ import com.ezh.Inventory.utils.UserContextUtil;
 import com.ezh.Inventory.utils.common.CommonResponse;
 import com.ezh.Inventory.utils.common.DocPrefix;
 import com.ezh.Inventory.utils.common.DocumentNumberUtil;
+import com.ezh.Inventory.utils.common.Status;
 import com.ezh.Inventory.utils.exception.CommonException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +41,7 @@ public class DeliveryServiceImpl implements DeliveryService {
     private final DeliveryRepository deliveryRepository;
     private final DeliveryItemRepository deliveryItemRepository;
     private final InvoiceRepository invoiceRepository;
+    private final RouteRepository routeRepository;
 
 
     @Override
@@ -176,18 +175,6 @@ public class DeliveryServiceImpl implements DeliveryService {
     }
 
     @Override
-    @Transactional
-    public CommonResponse<?> updateDeliveryStatus(Long deliveryId, ShipmentStatus newStatus) throws CommonException {
-
-
-        return CommonResponse
-                .builder()
-                .message("")
-                .build();
-    }
-
-
-    @Override
     @Transactional(readOnly = true)
     public DeliveryDto getDeliveryDetail(Long deliveryId) throws CommonException {
 
@@ -280,9 +267,228 @@ public class DeliveryServiceImpl implements DeliveryService {
         );
 
         return deliveries.stream().map(this::mapToDto).toList();
-
     }
 
+
+    @Override
+    @Transactional
+    public CommonResponse<?> rescheduleDelivery(Long deliveryId, Date newDate, String reason) {
+        Long tenantId = UserContextUtil.getTenantIdOrThrow();
+
+        Delivery delivery = deliveryRepository.findByIdAndTenantId(deliveryId, tenantId)
+                .orElseThrow(() -> new CommonException("Delivery not found", HttpStatus.NOT_FOUND));
+
+        // Update to Scheduled and set the new date
+        delivery.setStatus(ShipmentStatus.SCHEDULED);
+        delivery.setScheduledDate(newDate);
+        delivery.setRemarks(delivery.getRemarks() + " | Rescheduled: " + reason);
+
+        deliveryRepository.save(delivery);
+
+        return CommonResponse.builder()
+                .status(Status.SUCCESS)
+                .message("Delivery rescheduled to " + newDate)
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public CommonResponse<?> cancelDelivery(Long deliveryId, String reason) throws CommonException {
+        Long tenantId = UserContextUtil.getTenantIdOrThrow();
+
+        Delivery delivery = deliveryRepository.findByIdAndTenantId(deliveryId, tenantId)
+                .orElseThrow(() -> new CommonException("Delivery not found", HttpStatus.NOT_FOUND));
+
+        delivery.setStatus(ShipmentStatus.CANCELLED);
+        delivery.setRemarks(delivery.getRemarks() + " | Cancelled: " + reason);
+
+        // Update parent invoice delivery status back to PENDING so it can be re-processed later
+        Invoice invoice = delivery.getInvoice();
+        invoice.setDeliveryStatus(InvoiceDeliveryStatus.CANCELLED);
+
+        deliveryRepository.save(delivery);
+        invoiceRepository.save(invoice);
+
+        return CommonResponse.builder()
+                .status(Status.SUCCESS)
+                .message("Delivery cancelled successfully")
+                .build();
+    }
+
+
+    @Override
+    @Transactional
+    public CommonResponse<?> createRoute(RouteCreateDto dto) throws CommonException{
+        Long tenantId = UserContextUtil.getTenantIdOrThrow();
+
+        // 1. Create Route Header
+        Route route = Route.builder()
+                .tenantId(tenantId)
+                .routeNumber("RT-" + System.currentTimeMillis())
+                .areaName(dto.getAreaName()) // Can be null as per your request
+                .vehicleNumber(dto.getVehicleNumber())
+                .employeeId(dto.getEmployeeId())
+                .status(RouteStatus.CREATED)
+                .build();
+
+        route = routeRepository.save(route);
+
+        // 2. Batch Update Deliveries
+        if (dto.getDeliveryIds() != null && !dto.getDeliveryIds().isEmpty()) {
+            List<Delivery> deliveries = deliveryRepository.findAllById(dto.getDeliveryIds());
+            for (Delivery delivery : deliveries) {
+                // Ensure we only batch "SCHEDULED" deliveries
+                if (delivery.getStatus() == ShipmentStatus.SCHEDULED) {
+                    delivery.setRoute(route);
+
+                }
+            }
+            deliveryRepository.saveAll(deliveries);
+        }
+
+        return CommonResponse.builder()
+                .status(Status.SUCCESS)
+                .message("Route Batch Created Successfully")
+                .id(route.getId().toString())
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public CommonResponse<?> startRoute(Long routeId) throws CommonException {
+        Long tenantId = UserContextUtil.getTenantIdOrThrow();
+        Route route = routeRepository.findByIdAndTenantId(routeId, tenantId)
+                .orElseThrow(() -> new CommonException("Route not found", HttpStatus.NOT_FOUND));
+
+        route.setStatus(RouteStatus.IN_TRANSIT);
+        route.setStartDate(new Date());
+
+        // Batch Update all deliveries in this route to SHIPPED
+        List<Delivery> deliveries = route.getDeliveries();
+        deliveries.forEach(del -> {
+            del.setStatus(ShipmentStatus.SHIPPED);
+            del.setShippedDate(new Date());
+        });
+
+        deliveryRepository.saveAll(deliveries);
+        routeRepository.save(route);
+
+        return CommonResponse.builder()
+                .status(Status.SUCCESS)
+                .message("Route started. All deliveries marked as SHIPPED.")
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public CommonResponse<?> completeRoute(Long routeId) throws CommonException {
+        Long tenantId = UserContextUtil.getTenantIdOrThrow();
+        Route route = routeRepository.findByIdAndTenantId(routeId, tenantId)
+                .orElseThrow(() -> new CommonException("Route not found", HttpStatus.NOT_FOUND));
+
+        // Check if all deliveries are already 'DELIVERED'
+        boolean allDone = route.getDeliveries().stream()
+                .allMatch(d -> d.getStatus() == ShipmentStatus.DELIVERED);
+
+        if (!allDone) {
+            throw new CommonException("Cannot complete route: Some deliveries are still pending", HttpStatus.BAD_REQUEST);
+        }
+
+        route.setStatus(RouteStatus.COMPLETED);
+        routeRepository.save(route);
+
+        return CommonResponse.builder()
+                .status(Status.SUCCESS)
+                .message("Route manifest completed.")
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public RouteDto getRouteDetail(Long routeId) throws CommonException {
+        Long tenantId = UserContextUtil.getTenantIdOrThrow();
+
+        // 1. Fetch route with all delivery stops joined
+        Route route = routeRepository.findByIdWithDeliveries(routeId, tenantId)
+                .orElseThrow(() -> new CommonException("Route manifest not found", HttpStatus.NOT_FOUND));
+
+        // 2. Map to DTO including the list of delivery stops
+        return mapToRouteDto(route);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<RouteDto> getAllRoutes(int page, int size) throws CommonException {
+
+        Long tenantId = UserContextUtil.getTenantIdOrThrow();
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "id"));
+
+        Page<Route> routePage = routeRepository.findByTenantId(tenantId, pageable);
+
+        return routePage.map(this::mapToRouteDto);
+    }
+
+
+    @Override
+    @Transactional(readOnly = true)
+    public RouteSummaryDto getRouteSummary() throws CommonException {
+        Long tenantId = UserContextUtil.getTenantIdOrThrow();
+
+        long pending = deliveryRepository.countPendingDeliveries(tenantId);
+        long delivered = deliveryRepository.countByStatus(tenantId, ShipmentStatus.DELIVERED);
+        long cancelled = deliveryRepository.countByStatus(tenantId, ShipmentStatus.CANCELLED);
+        long totalRoutes = deliveryRepository.countTotalRoutes(tenantId);
+
+        // Calculate Efficiency (Completed / Total)
+        long totalItems = pending + delivered + cancelled;
+        String efficiency = totalItems > 0 ? (delivered * 100 / totalItems) + "%" : "0%";
+
+        return RouteSummaryDto.builder()
+                .totalRoutes(totalRoutes)
+                .pendingDeliveries(pending)
+                .completedDeliveries(delivered)
+                .cancelledDeliveries(cancelled)
+                .routeEfficiency(efficiency)
+                .build();
+    }
+
+    /**
+     * Helper method to map Route Entity to RouteDto
+     */
+    private RouteDto mapToRouteDto(Route route) {
+        return RouteDto.builder()
+                .id(route.getId())
+                .routeNumber(route.getRouteNumber())
+                .areaName(route.getAreaName())
+                .employeeId(route.getEmployeeId())
+                .employeeName("Unassigned")
+                .vehicleNumber(route.getVehicleNumber())
+                .status(route.getStatus())
+                .startDate(route.getStartDate())
+                // Map the list of deliveries associated with this route batch
+                .deliveries(route.getDeliveries().stream()
+                        .map(this::mapToDeliveryStopDto)
+                        .collect(Collectors.toList()))
+                .build();
+    }
+
+    /**
+     * Reusing your existing Delivery mapping logic
+     */
+    private DeliveryDto mapToDeliveryStopDto(Delivery delivery) {
+        return DeliveryDto.builder()
+                .id(delivery.getId())
+                .deliveryNumber(delivery.getDeliveryNumber())
+                .status(delivery.getStatus())
+                .customerName(delivery.getCustomer().getName())
+                .deliveryAddress(delivery.getDeliveryAddress())
+                .contactPerson(delivery.getContactPerson())
+                .contactPhone(delivery.getContactPhone())
+                .shippedDate(delivery.getShippedDate())
+                .deliveredDate(delivery.getDeliveredDate())
+                .build();
+    }
     private boolean isValidTransition(ShipmentStatus current, ShipmentStatus next) {
 
         switch (current) {

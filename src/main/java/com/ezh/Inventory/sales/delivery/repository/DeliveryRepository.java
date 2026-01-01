@@ -56,5 +56,14 @@ public interface DeliveryRepository extends JpaRepository<Delivery, Long> {
             @Param("deliveredDate") Date deliveredDate
     );
 
+
+    @Query("SELECT COUNT(d) FROM Delivery d WHERE d.tenantId = :tenantId AND d.status = :status")
+    long countByStatus(@Param("tenantId") Long tenantId, @Param("status") ShipmentStatus status);
+
+    @Query("SELECT COUNT(d) FROM Delivery d WHERE d.tenantId = :tenantId AND (d.status = 'SCHEDULED' OR d.status = 'SHIPPED')")
+    long countPendingDeliveries(@Param("tenantId") Long tenantId);
+
+    @Query("SELECT COUNT(r) FROM Route r WHERE r.tenantId = :tenantId")
+    long countTotalRoutes(@Param("tenantId") Long tenantId);
 }
 

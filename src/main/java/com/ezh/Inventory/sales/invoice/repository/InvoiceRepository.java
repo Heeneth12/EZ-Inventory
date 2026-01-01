@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 
@@ -41,5 +42,55 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
             @Param("status") InvoiceStatus status,
             @Param("customerId") Long customerId,
             @Param("warehouseId") Long warehouseId
+    );
+
+    @Query("""
+                SELECT i FROM Invoice i
+                WHERE i.tenantId = :tenantId
+                  AND (:id IS NULL OR i.id = :id)
+                  AND (:salesOrderId IS NULL OR i.salesOrder.id = :salesOrderId)
+                  AND (:status IS NULL OR i.status = :status)
+                  AND (:customerId IS NULL OR i.customer.id = :customerId)
+                  AND (:warehouseId IS NULL OR i.warehouseId = :warehouseId)
+            """)
+    Page<Invoice> getAllInvoices(
+            @Param("tenantId") Long tenantId,
+            @Param("id") Long id,
+            @Param("salesOrderId") Long salesOrderId,
+            @Param("status") InvoiceStatus status,
+            @Param("customerId") Long customerId,
+            @Param("warehouseId") Long warehouseId,
+            Pageable pageable
+    );
+
+    @Query("""
+                SELECT i FROM Invoice i
+                WHERE i.tenantId = :tenantId
+                  AND (:id IS NULL OR i.id = :id)
+                  AND (:salesOrderId IS NULL OR i.salesOrder.id = :salesOrderId)
+                  AND (:status IS NULL OR i.status = :status)
+                  AND (:customerId IS NULL OR i.customer.id = :customerId)
+                  AND (:warehouseId IS NULL OR i.warehouseId = :warehouseId)
+                  AND (
+                        (:fromDate IS NULL AND :toDate IS NULL)
+                        OR (i.invoiceDate BETWEEN :fromDate AND :toDate)
+                      )
+                  AND (
+                        :searchQuery IS NULL
+                        OR LOWER(i.invoiceNumber) LIKE LOWER(CONCAT('%', :searchQuery, '%'))
+                        OR LOWER(i.remarks) LIKE LOWER(CONCAT('%', :searchQuery, '%'))
+                      )
+            """)
+    Page<Invoice> getAllInvoices(
+            @Param("tenantId") Long tenantId,
+            @Param("id") Long id,
+            @Param("salesOrderId") Long salesOrderId,
+            @Param("status") InvoiceStatus status,
+            @Param("customerId") Long customerId,
+            @Param("warehouseId") Long warehouseId,
+            @Param("searchQuery") String searchQuery,
+            @Param("fromDate") Date fromDate,
+            @Param("toDate") Date toDate,
+            Pageable pageable
     );
 }

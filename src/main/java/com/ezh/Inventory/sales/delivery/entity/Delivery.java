@@ -65,7 +65,14 @@ public class Delivery extends CommonSerializable {
     @Column(name = "contact_phone", length = 20)
     private String contactPhone;
 
+    @Column(name = "remarks")
+    private String remarks;
+
     @Builder.Default
     @OneToMany(mappedBy = "delivery", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<DeliveryItem> items = new ArrayList<>();
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "route_id")
+    private Route route;
 }

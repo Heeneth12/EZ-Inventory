@@ -36,10 +36,10 @@ public class PaymentController {
     }
 
     @PostMapping(value = "/all", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseResource<Page<PaymentDto>> getAllPayments(@RequestParam(defaultValue = "0") Integer page,
+    public ResponseResource<Page<PaymentDto>> getAllPayments(@RequestBody PaymentFilter filter,  @RequestParam(defaultValue = "0") Integer page,
                                                              @RequestParam(defaultValue = "10") Integer size) throws CommonException {
         log.info("Fetching payments page: {}, size: {}", page, size);
-        Page<PaymentDto> response = paymentService.getAllPayments(page, size);
+        Page<PaymentDto> response = paymentService.getAllPayments(filter, page, size);
         return ResponseResource.success(HttpStatus.OK, response, "Payments fetched successfully");
     }
 
@@ -84,6 +84,13 @@ public class PaymentController {
         log.info("Applying wallet funds: {}", walletPayDto);
         CommonResponse<?> response = paymentService.applyWalletToInvoice(walletPayDto);
         return ResponseResource.success(HttpStatus.OK, response, "Wallet balance applied successfully");
+    }
+
+    @PostMapping(value = "/wallet/add", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseResource<CommonResponse<?>> addMoneyToWallet(@RequestBody WalletAddDto walletAddDto) throws CommonException {
+        log.info("Adding money to wallet for customer: {}", walletAddDto.getCustomerId());
+        CommonResponse<?> response = paymentService.addMoneyToWallet(walletAddDto);
+        return ResponseResource.success(HttpStatus.CREATED, response, "Money added to wallet successfully");
     }
 
     /**

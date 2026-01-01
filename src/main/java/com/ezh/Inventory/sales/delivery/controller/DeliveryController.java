@@ -1,8 +1,7 @@
 package com.ezh.Inventory.sales.delivery.controller;
 
 
-import com.ezh.Inventory.sales.delivery.dto.DeliveryDto;
-import com.ezh.Inventory.sales.delivery.dto.DeliveryFilterDto;
+import com.ezh.Inventory.sales.delivery.dto.*;
 import com.ezh.Inventory.sales.delivery.service.DeliveryService;
 import com.ezh.Inventory.utils.common.CommonResponse;
 import com.ezh.Inventory.utils.common.ResponseResource;
@@ -59,4 +58,46 @@ public class DeliveryController {
         return ResponseResource.success(HttpStatus.OK, response, "Delivery status updated successfully");
     }
 
+    @PostMapping(value = "/route", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseResource<CommonResponse<?>> createRoute(@RequestBody RouteCreateDto routeCreateDto) throws CommonException {
+        log.info("Entering createRoute for area: {}", routeCreateDto.getAreaName());
+        CommonResponse<?> response = deliveryService.createRoute(routeCreateDto);
+        return ResponseResource.success(HttpStatus.CREATED, response, "Route manifest created successfully");
+    }
+
+    @GetMapping(value = "/route/{routeId}", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseResource<RouteDto> getRouteDetail(@PathVariable Long routeId) throws CommonException {
+        log.info("Fetching route details for ID: {}", routeId);
+        RouteDto response = deliveryService.getRouteDetail(routeId);
+        return ResponseResource.success(HttpStatus.OK, response, "Route details fetched successfully");
+    }
+
+    @PostMapping(value = "/route/start/{routeId}", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseResource<CommonResponse<?>> startRoute(@PathVariable Long routeId) throws CommonException {
+        log.info("Starting route trip for ID: {}", routeId);
+        CommonResponse<?> response = deliveryService.startRoute(routeId);
+        return ResponseResource.success(HttpStatus.OK, response, "Trip started successfully");
+    }
+
+    @PostMapping(value = "/route/complete/{routeId}", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseResource<CommonResponse<?>> completeRoute(@PathVariable Long routeId) throws CommonException {
+        log.info("Completing route manifest for ID: {}", routeId);
+        CommonResponse<?> response = deliveryService.completeRoute(routeId);
+        return ResponseResource.success(HttpStatus.OK, response, "Route manifest closed successfully");
+    }
+
+    @GetMapping(value = "/route/all", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseResource<Page<RouteDto>> getAllRoutes(@RequestParam(defaultValue = "0") Integer page,
+                                                         @RequestParam(defaultValue = "10") Integer size) throws CommonException {
+        log.info("Fetching routes page: {}, size: {}", page, size);
+        Page<RouteDto> response = deliveryService.getAllRoutes(page, size);
+        return ResponseResource.success(HttpStatus.OK, response, "Routes fetched successfully");
+    }
+
+    @GetMapping(value = "/route/summary", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseResource<RouteSummaryDto> getRouteSummary() throws CommonException {
+        log.info("Fetching delivery and route summary dashboard stats");
+        RouteSummaryDto response = deliveryService.getRouteSummary();
+        return ResponseResource.success(HttpStatus.OK, response, "Summary stats fetched successfully");
+    }
 }
