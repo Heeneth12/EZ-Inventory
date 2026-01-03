@@ -197,7 +197,16 @@ public class StockAdjustmentServiceImpl implements StockAdjustmentService {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
 
         // Assuming you have a basic findAll or specification
-        Page<StockAdjustment> adjustments = stockAdjustmentRepository.findAllByTenantId(getTenantIdOrThrow(), pageable);
+        Page<StockAdjustment> adjustments = stockAdjustmentRepository.findAllStockAdjustment(
+                tenantId,
+                filter.getId(),
+                filter.getStatus(),
+                filter.getWarehouseId(),
+                filter.getSearchQuery(),
+                filter.getFromDate(),
+                filter.getToDate(),
+                pageable
+        );
 
         return adjustments.map(adj -> StockAdjustmentListDto.builder()
                 .id(adj.getId())
