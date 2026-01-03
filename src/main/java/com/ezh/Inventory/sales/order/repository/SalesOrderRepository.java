@@ -44,7 +44,7 @@ public interface SalesOrderRepository extends JpaRepository<SalesOrder, Long> {
                     SELECT * FROM sales_order so
                     WHERE so.tenant_id = :tenantId
                       AND (:id IS NULL OR so.id = :id)
-                      AND (CAST(:status AS text) IS NULL OR so.status = CAST(:status AS sales_order_status))
+                      AND (CAST(:status AS text) IS NULL OR so.status = CAST(:status AS text))
                       AND (:customerId IS NULL OR so.customer_id = :customerId)
                       AND (:warehouseId IS NULL OR so.warehouse_id = :warehouseId)
                       AND (

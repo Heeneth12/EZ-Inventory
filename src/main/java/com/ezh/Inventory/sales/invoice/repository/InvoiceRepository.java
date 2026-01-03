@@ -69,8 +69,7 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
                     WHERE i.tenant_id = :tenantId
                       AND (:id IS NULL OR i.id = :id)
                       AND (:salesOrderId IS NULL OR i.sales_order_id = :salesOrderId)
-                      -- CAST TO 'invoice_status' HERE:
-                      AND (CAST(:status AS text) IS NULL OR i.status = CAST(:status AS invoice_status))
+                      AND (CAST(:status AS text) IS NULL OR i.status = CAST(:status AS text))
                       AND (:customerId IS NULL OR i.customer_id = :customerId)
                       AND (:warehouseId IS NULL OR i.warehouse_id = :warehouseId)
                       AND (CAST(:fromDate AS date) IS NULL OR i.invoice_date >= CAST(:fromDate AS date))
