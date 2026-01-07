@@ -3,15 +3,21 @@ package com.ezh.Inventory.items.controller;
 import com.ezh.Inventory.items.dto.ItemDto;
 import com.ezh.Inventory.items.dto.ItemFilterDto;
 import com.ezh.Inventory.items.service.ItemService;
+import com.ezh.Inventory.items.utils.ItemExcelUtils;
 import com.ezh.Inventory.utils.common.CommonResponse;
 import com.ezh.Inventory.utils.common.ResponseResource;
 import com.ezh.Inventory.utils.exception.CommonException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -64,5 +70,46 @@ public class ItemController {
         log.info("Searching items by query: {}", itemFilter);
         List<ItemDto> response = itemService.itemSearch(itemFilter);
         return ResponseResource.success(HttpStatus.OK, response, "SEARCH RESULTS");
+    }
+
+    @PostMapping(value = "/bulk/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseResource<CommonResponse<?>> bulkItemsUpload(@RequestParam("file") MultipartFile file) {
+        log.info("Entering bulk items upload");
+
+        if (ItemExcelUtils.hasExcelFormat(file)) {
+            try {
+                CommonResponse<?> response = itemService.saveBulkItems(file);
+                return ResponseResource.success(HttpStatus.OK, response, response.getMessage());
+            } catch (Exception e) {
+                log.error("Bulk upload failed", e);
+                throw new CommonException("Upload failed: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+            }
+        }
+        throw new CommonException("Please upload a valid Excel file (.xlsx)", HttpStatus.BAD_REQUEST);
+    }
+
+    @PostMapping(value = "/bulk/download")
+    public ResponseEntity<Resource> bulkItemsDownload(@RequestBody ItemFilterDto filter) {
+        log.info("Starting bulk download");
+        String filename = "items_inventory.xlsx";
+        InputStreamResource file = new InputStreamResource(itemService.loadItemsForDownload(filter));
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=" + filename)
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(file);
+    }
+
+    @GetMapping(value = "/template")
+    public ResponseEntity<Resource> getItemTemplate() {
+        log.info("Downloading Item Template");
+        String filename = "item_upload_template.xlsx";
+
+        InputStreamResource file = new InputStreamResource(itemService.getItemTemplate());
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=" + filename)
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(file);
     }
 }

@@ -4,6 +4,7 @@ import com.ezh.Inventory.items.dto.ItemDto;
 import com.ezh.Inventory.items.dto.ItemFilterDto;
 import com.ezh.Inventory.items.entity.Item;
 import com.ezh.Inventory.items.repository.ItemRepository;
+import com.ezh.Inventory.items.utils.ItemExcelUtils;
 import com.ezh.Inventory.utils.common.CommonResponse;
 import com.ezh.Inventory.utils.common.Status;
 import com.ezh.Inventory.utils.exception.CommonException;
@@ -15,8 +16,13 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static com.ezh.Inventory.utils.UserContextUtil.getTenantIdOrThrow;
 
@@ -94,7 +100,7 @@ public class ItemServiceImpl implements ItemService {
 
     @Override
     @Transactional
-    public CommonResponse toggleItemActiveStatus(Long itemId, Boolean active) throws CommonException{
+    public CommonResponse toggleItemActiveStatus(Long itemId, Boolean active) throws CommonException {
         log.info("Updating active status for item {} → {}", itemId, active);
 
         Item item = itemRepository.findByIdAndTenantId(itemId, getTenantIdOrThrow())
@@ -132,6 +138,77 @@ public class ItemServiceImpl implements ItemService {
     }
 
 
+    @Override
+    @Transactional
+    public CommonResponse<?> saveBulkItems(MultipartFile file) {
+        // 1. Validate File
+        if (!ItemExcelUtils.hasExcelFormat(file)) {
+            throw new CommonException("Invalid File Format", HttpStatus.BAD_REQUEST);
+        }
+
+        try {
+            List<ItemDto> itemDtos = ItemExcelUtils.excelToItems(file.getInputStream());
+            List<Item> itemsToSave = new ArrayList<>();
+            List<String> errors = new ArrayList<>();
+
+            for (ItemDto dto : itemDtos) {
+                Item item = null;
+
+                // 2. Check if ID is provided and exists in DB (UPDATE SCENARIO)
+                if (dto.getId() != null) {
+                    Optional<Item> existingItem = itemRepository.findByIdAndTenantId(dto.getId(), getTenantIdOrThrow());
+
+                    if (existingItem.isPresent()) {
+                        item = existingItem.get();
+                        mapDtoToEntity(dto, item); // Update existing fields
+                    }
+                    // IF NOT PRESENT: 'item' remains null, so we fall through to creation below.
+                }
+
+                // 3. If item is still null (ID was null OR ID was not found), treat as CREATE
+                if (item == null) {
+                    // Check business key (Item Code) uniqueness
+                    if (itemRepository.existsByItemCode(dto.getItemCode())) {
+                        errors.add("Item Code " + dto.getItemCode() + " already exists. Skipped.");
+                        continue;
+                    }
+
+                    item = convertToEntity(dto);
+                    // IMPORTANT: Ensure ID is null so DB generates a fresh one
+                    // (This ignores the invalid ID provided in the Excel file)
+                    item.setId(null);
+                }
+
+                itemsToSave.add(item);
+            }
+
+            // 4. Batch Save
+            itemRepository.saveAll(itemsToSave);
+
+            return CommonResponse.builder()
+                    .message("Processed " + itemsToSave.size() + " items. " + errors.size() + " errors.")
+                    .data(errors)
+                    .status(Status.SUCCESS)
+                    .build();
+
+        } catch (IOException e) {
+            throw new RuntimeException("Excel processing failed: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public ByteArrayInputStream loadItemsForDownload(ItemFilterDto itemFilter) throws CommonException {
+        // SECURITY: Always filter by Tenant ID
+        List<Item> items = itemRepository.findAll();
+
+        return ItemExcelUtils.itemsToExcel(items);
+    }
+
+    @Override
+    public ByteArrayInputStream getItemTemplate() throws CommonException {
+        // Simply call the helper to generate the blank/sample file
+        return ItemExcelUtils.generateExcelTemplate();
+    }
 
     private Item convertToEntity(ItemDto dto) {
         return Item.builder()
